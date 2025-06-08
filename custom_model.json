@@ -1,0 +1,8 @@
+{
+  "priority": [
+    {
+      "if": "road_id == 'road_001'",
+      "multiply_by": 1.55
+    }
+  ]
+}

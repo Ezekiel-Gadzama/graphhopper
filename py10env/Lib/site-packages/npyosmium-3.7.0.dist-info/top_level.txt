@@ -1,0 +1,6 @@
+cmake_example
+npyosmium
+npyosmium/area
+npyosmium/filter
+npyosmium/osm
+npyosmium/replication
