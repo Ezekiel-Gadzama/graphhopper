@@ -34,7 +34,7 @@ public class GraphHopperManaged implements Managed {
         if (configuration.has("gtfs.file")) {
             graphHopper = new GraphHopperGtfs(configuration);
         } else {
-            graphHopper = new GraphHopper();
+            graphHopper = new CustomGraphHopper();
         }
         graphHopper.init(configuration);
     }
