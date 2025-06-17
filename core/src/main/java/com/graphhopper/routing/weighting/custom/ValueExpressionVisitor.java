@@ -50,7 +50,8 @@ public class ValueExpressionVisitor implements Visitor.AtomVisitor<Boolean, Exce
 
     // allow only methods and other identifiers (constants and encoded values)
     boolean isValidIdentifier(String identifier) {
-        if (variableValidator.isValid(identifier)) {
+        if (variableValidator.isValid(identifier) ||
+            identifier.equals(CustomModelParser.OSM_ID_KEY)) {
             if (!Character.isUpperCase(identifier.charAt(0)))
                 result.guessedVariables.add(identifier);
             return true;

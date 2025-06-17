@@ -1,4 +1,5 @@
 package com.graphhopper.http;
+
 import com.graphhopper.GraphHopper;
 import com.graphhopper.routing.ev.*;
 import com.graphhopper.routing.util.EncodingManager;
@@ -16,17 +17,17 @@ public class CustomGraphHopper extends GraphHopper {
             Map<String, ImportUnit> activeImportUnits,
             Map<String, List<String>> restrictionVehicleTypesByProfile) {
 
-        encodedValuesWithProps.putIfAbsent(OSMIDTagParser.KEY, new PMap());
-        EncodingManager.Builder emBuilder = new EncodingManager.Builder();
+        // Create and configure OSM ID properties
+        PMap osmIdProps = new PMap();
+        osmIdProps.putObject("bits", 31);
+        osmIdProps.putObject("store_two_directions", false);
 
-        for (EncodedValue ev : super.buildEncodingManager(
-                encodedValuesWithProps, activeImportUnits, restrictionVehicleTypesByProfile).getEncodedValues()) {
-            emBuilder.add(ev);
-        }
+        // Add to the configuration map
+        encodedValuesWithProps.put(OSMIDTagParser.KEY, osmIdProps);
 
-        // Fixed: Use SimpleIntEncodedValue instead of EncodedValueFactory
-        emBuilder.add(new IntEncodedValueImpl(OSMIDTagParser.KEY, 32, false));
-        return emBuilder.build();
+        // Ensure car profile is configured
+        encodedValuesWithProps.putIfAbsent("car", new PMap());
+        return super.buildEncodingManager(encodedValuesWithProps, activeImportUnits, restrictionVehicleTypesByProfile);
     }
 
     @Override
@@ -38,7 +39,12 @@ public class CustomGraphHopper extends GraphHopper {
 
         OSMParsers osmParsers = super.buildOSMParsers(
                 encodedValuesWithProps, activeImportUnits, restrictionVehicleTypesByProfile, ignoredHighways);
-        osmParsers.addWayTagParser(new OSMIDTagParser(getEncodingManager()));
+
+        // Only add the parser if the encoding exists
+        if (getEncodingManager().hasEncodedValue(OSMIDTagParser.KEY)) {
+            osmParsers.addWayTagParser(new OSMIDTagParser(getEncodingManager()));
+        }
+
         return osmParsers;
     }
 }

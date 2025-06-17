@@ -1,7 +1,7 @@
 {
   "priority": [
     {
-      "if": "road_id == 'road_001'",
+      "if": "osm_id == 123456789",
       "multiply_by": 1.55
     }
   ]

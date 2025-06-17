@@ -45,6 +45,7 @@ public class CustomModelParser {
     static final String BACKWARD_PREFIX = "backward_";
     private static final boolean JANINO_DEBUG = Boolean.getBoolean(Scanner.SYSTEM_PROPERTY_SOURCE_DEBUGGING_ENABLE);
     private static final String SCRIPT_FILE_DIR = System.getProperty(Scanner.SYSTEM_PROPERTY_SOURCE_DEBUGGING_DIR, "./src/main/java/com/graphhopper/routing/weighting/custom");
+    public static final String OSM_ID_KEY = "osm_id";
 
     // Without a cache the class creation takes 10-40ms which makes routingLM8 requests 20% slower on average.
     // CH requests and preparation is unaffected as cached weighting from preparation is used.
@@ -266,6 +267,9 @@ public class CustomModelParser {
      * or if an area contains the current edge.
      */
     private static String getVariableDeclaration(EncodedValueLookup lookup, final String arg) {
+        if (arg.equals(OSM_ID_KEY)) {
+            return "long " + arg + " = edge.get(" + OSM_ID_KEY + "_enc);\n";
+        }
         if (lookup.hasEncodedValue(arg)) {
             EncodedValue enc = lookup.getEncodedValue(arg, EncodedValue.class);
             return getReturnType(enc) + " " + arg + " = (" + getReturnType(enc) + ") (reverse ? " +
@@ -410,8 +414,11 @@ public class CustomModelParser {
                                                                List<Statement> list, EncodedValueLookup lookup) throws Exception {
         // allow variables, all encoded values, constants and special variables like in_xyarea or backward_car_access
         NameValidator nameInConditionValidator = name -> lookup.hasEncodedValue(name)
-                || name.toUpperCase(Locale.ROOT).equals(name) || name.startsWith(IN_AREA_PREFIX)
-                || name.startsWith(BACKWARD_PREFIX) && lookup.hasEncodedValue(name.substring(BACKWARD_PREFIX.length()));
+                || name.toUpperCase(Locale.ROOT).equals(name)
+                || name.startsWith(IN_AREA_PREFIX)
+                || (name.startsWith(BACKWARD_PREFIX) && lookup.hasEncodedValue(name.substring(BACKWARD_PREFIX.length())))
+                || name.equals(OSM_ID_KEY);  // Add this line for OSM ID support
+
         ClassHelper helper = key -> getReturnType(lookup.getEncodedValue(key, EncodedValue.class));
 
         parseExpressions(expressions, nameInConditionValidator, info, createObjects, list, helper, "");
