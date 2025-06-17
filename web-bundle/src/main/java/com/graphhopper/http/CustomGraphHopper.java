@@ -5,6 +5,8 @@ import com.graphhopper.routing.ev.*;
 import com.graphhopper.routing.util.EncodingManager;
 import com.graphhopper.routing.util.OSMParsers;
 import com.graphhopper.routing.util.parsers.OSMIDTagParser;
+import com.graphhopper.routing.weighting.custom.NameValidator;
+import com.graphhopper.routing.weighting.custom.ValueExpressionVisitor;
 import com.graphhopper.util.PMap;
 import java.util.List;
 import java.util.Map;
@@ -17,16 +19,33 @@ public class CustomGraphHopper extends GraphHopper {
             Map<String, ImportUnit> activeImportUnits,
             Map<String, List<String>> restrictionVehicleTypesByProfile) {
 
-        // Create and configure OSM ID properties
-        PMap osmIdProps = new PMap();
-        osmIdProps.putObject("bits", 31);
-        osmIdProps.putObject("store_two_directions", false);
+        // Only add OSM ID encoding if it's not already present
+        if (!activeImportUnits.containsKey(OSMIDTagParser.KEY)) {
+            // 1. Register OSM ID as an import unit using the factory method
+            activeImportUnits.put(OSMIDTagParser.KEY, ImportUnit.create(
+                    OSMIDTagParser.KEY,
+                    p -> {
+                        String bitsStr = p.getString("bits", "31");
+                        String storeTwoStr = p.getString("store_two_directions", "false");
 
-        // Add to the configuration map
-        encodedValuesWithProps.put(OSMIDTagParser.KEY, osmIdProps);
+                        int bits = Integer.parseInt(bitsStr);
+                        boolean storeTwoDirections = Boolean.parseBoolean(storeTwoStr);
+                        return new IntEncodedValueImpl(OSMIDTagParser.KEY, bits, storeTwoDirections);
+                    },
+                    null, // No tag parser needed for OSM IDs
+                    new String[0] // No required import units
+            ));
 
-        // Ensure car profile is configured
+            // 2. Add configuration
+            PMap osmIdProps = new PMap();
+            osmIdProps.putObject("bits", "31");
+            osmIdProps.putObject("store_two_directions", "false");
+            encodedValuesWithProps.put(OSMIDTagParser.KEY, osmIdProps);
+        }
+
+        // 3. Handle car profile
         encodedValuesWithProps.putIfAbsent("car", new PMap());
+
         return super.buildEncodingManager(encodedValuesWithProps, activeImportUnits, restrictionVehicleTypesByProfile);
     }
 

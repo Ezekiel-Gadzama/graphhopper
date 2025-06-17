@@ -47,6 +47,11 @@ public class GraphHopperManaged implements Managed {
                 graphHopper.getEncodingManager().toEncodedValuesAsString(),
                 graphHopper.getEncodingManager().getBytesForFlags(),
                 graphHopper.getBaseGraph().toDetailsString());
+
+//        // Debug here:
+//        EncodingManager em = graphHopper.getEncodingManager();
+//        System.out.println("[DEBUG] Encoded values after load: " + em.getEncodedValues());
+//        System.out.println("[DEBUG] OSM ID check: " + em.hasEncodedValue(OSM_ID_KEY));
     }
 
     public GraphHopper getGraphHopper() {
