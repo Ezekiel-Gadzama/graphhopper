@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 from services.optimization import FuelOptimizer
 from services.graphhopper import GraphHopper
 from utils.visualization import visualize_route
@@ -11,30 +12,45 @@ def main():
         240294599, 761483024, 46737021, 240294607
     ]
 
-    # Process optimization
+    # Initialize and run optimization
     optimizer = FuelOptimizer()
-    for osm_id in unique_osm_ids:
-        optimizer.process_osm_id(osm_id)
-    optimizer.save_custom_model()
+    
+    # Update custom model with all OSM IDs at once (more efficient)
+    optimizer.update_custom_model(unique_osm_ids)
 
     # Request route from GraphHopper
-    start = (55.761368, 37.537752)
+    start = (55.761368, 37.537752)  # Latitude, Longitude
     end = (55.669699, 37.626329)
     
+    # Load the custom model that was just updated
     with open(settings.CUSTOM_MODEL_PATH) as f:
         custom_model = json.load(f)
     
-    graphhopper = GraphHopper()
-    route = graphhopper.request_route(start, end, custom_model)
+    # Get optimized route
+    graphhopper = GraphHopper(base_url=settings.GRAPHHOPPER_URL)
+    route = graphhopper.request_route(
+        start_coord=start,
+        end_coord=end,
+        custom_model=custom_model
+    )
 
-    if "paths" in route:
-        print("Route processing complete")
-        for edge in route["paths"][0].get("details", {}).get("osm_id", []):
-            print(f"Edge: {edge[2]}")
-            if edge[2] == 123456789:  # Example target ID
-                print(f"⚠️ Found target OSM ID at positions {edge[0]}-{edge[1]}")
+    # Process and display results
+    if route and "paths" in route:
+        print("\nRoute processing complete")
+        print(f"Total distance: {route['paths'][0]['distance']/1000:.2f} km")
+        print(f"Estimated time: {timedelta(seconds=route['paths'][0]['time']/1000)}")
+        
+        # Print important edges in the route
+        print("\nKey road segments in route:")
+        for i, edge in enumerate(route["paths"][0].get("details", {}).get("osm_id", [])[:5]):  # Show first 5
+            print(f"Segment {i+1}: OSM ID {edge[2]} positions {edge[0]}-{edge[1]}")
 
-    visualize_route(start, route, custom_model)
+    # Visualize the route
+    visualize_route(
+        start_point=start,
+        route_data=route,
+        custom_model=custom_model
+    )
 
 if __name__ == "__main__":
     main()

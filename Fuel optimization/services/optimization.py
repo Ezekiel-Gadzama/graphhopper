@@ -92,20 +92,22 @@ class FuelOptimizer:
             road = extractor.roads[osm_id]
             fuel_multiplier = self.process_road(road)
 
-            # Get traffic data
-            traffic_raw = self.here_api.get_traffic_flow(road.coordinates)
-            traffic_data = self.here_api.extract_traffic_data(traffic_raw)
+            # # Get traffic data
+            # traffic_raw = self.here_api.get_traffic_flow(road.coordinates)
+            # traffic_data = self.here_api.extract_traffic_data(traffic_raw)
             
-            # Get weather data
-            weather_raw = self.tomorrow_io.get_weather_data(road.coordinates)
-            weather_data = self.tomorrow_io.extract_weather_data(weather_raw)
+            # # Get weather data
+            # weather_raw = self.tomorrow_io.get_weather_data(road.coordinates)
+            # weather_data = self.tomorrow_io.extract_weather_data(weather_raw)
 
-            # Calculate multiplier
-            multiplier = self.calculate_edge_weight_multiplier(
-                fuel_multiplier=fuel_multiplier,
-                jam_multiplier=traffic_data.jam_factor,
-                weather_multiplier=weather_data.weather_factor
-            )
+            # # Calculate multiplier
+            # multiplier = self.calculate_edge_weight_multiplier(
+            #     fuel_multiplier=fuel_multiplier,
+            #     jam_multiplier=traffic_data.jam_factor,
+            #     weather_multiplier=weather_data.weather_factor
+            # )
+
+            multiplier = fuel_multiplier
             
             self.custom_model.add_priority_rule(osm_id, multiplier)
             print(f"Processed OSM ID {osm_id}: {road.road_type.value} road, multiplier={multiplier:.2f}")
