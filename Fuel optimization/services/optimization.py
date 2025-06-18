@@ -1,3 +1,6 @@
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
 from typing import Dict, List
 from models.custom_model import CustomModel
 from models.road import RoadExtractor, Road

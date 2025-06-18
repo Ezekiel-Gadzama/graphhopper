@@ -1,6 +1,6 @@
 from typing import List, Dict
 from datetime import datetime, timedelta
-from api.fuel_database import FuelDatabase
+from services.api.fuel_database import FuelDatabase
 from models.data_class import (
     RoadType, 
     FuelPoint, 
