@@ -1,54 +1,56 @@
 import osmium
-from generate_custom_model import jam_factor_to_multiplier, write_custom_model
-from here_traffic import get_traffic_flow_here_api
+from generate_custom_model import factor_to_multiplier, write_custom_model
+from here_traffic import get_traffic_flow_here_api, extract_jam_factor
+from Tomorrow_io import get_weather_from_tomorrowIo_api, extract_weather_factor
+from fuel_data import get_fuel_data
 
-API_KEY = "YOUR_HERE_API_KEY"
+HERE_API_KEY = "YOUR_HERE_API_KEY"
+TOMORROW_API_KEY = "YOUR_TOMORROW_API_KEY"
 OSM_FILE = "moscow_tagged.osm.pbf"
 
-# You can load this dynamically or keep it static
-unique_roads = ["road_00001", "road_00002", "road_00003"]
+# Now using actual OSM Way IDs (integers, not strings)
+unique_osm_ids = [
+    498126573, 498126585, 498126586, 498126562,
+    240294599, 761483024, 46737021, 240294607
+]
 
-# Define the RoadExtractor class
+# Define the RoadExtractor class using OSM way ID
 class RoadExtractor(osmium.SimpleHandler):
-    def __init__(self, target_road_ids):
+    def __init__(self, target_osm_ids):
         super().__init__()
-        self.target_road_ids = set(target_road_ids)  # multiple road IDs
-        self.roads = {}  # store coords by road_id
+        self.target_osm_ids = set(target_osm_ids)  # Use integer IDs
+        self.roads = {}  # {osm_id: [(lon, lat), ...]}
 
     def way(self, w):
-        road_id = w.tags.get("road_id")
-        if road_id in self.target_road_ids:
-            print(road_id)
+        if w.id in self.target_osm_ids:
             coords = [(node.lon, node.lat) for node in w.nodes]
-            print(coords)
-            self.roads[road_id] = coords
+            self.roads[w.id] = coords
 
-
-# Dummy jam factor extractor (update according to HERE API response structure)
-def extract_jam_factor(traffic_data):
-    try:
-        flows = traffic_data.get("RWS", [])[0].get("RW", [])[0].get("FIS", [])[0].get("FI", [])[0]
-        jam_factor = flows.get("CF", [])[0].get("JF", 0)  # 'JF' = jam factor
-        return jam_factor
-    except (IndexError, KeyError, TypeError):
-        print("Could not extract jam factor.")
-        return 0.0
+def calculate_edge_weight_multipler(fuel_data, Jam_multiplier, weather_multipler):
+    pass
 
 # Main logic
-for road_id in unique_roads:
-    extractor = RoadExtractor([road_id])  # pass a list of one element
-    extractor.apply_file('filtered_roads.osm.pbf', locations=True)
+for osm_id in unique_osm_ids:
+    extractor = RoadExtractor([osm_id])
+    extractor.apply_file(OSM_FILE, locations=True)
 
-    if road_id not in extractor.roads:
-        print(f"No coordinates found for {road_id}. Skipping.")
+    if osm_id not in extractor.roads:
+        print(f"No coordinates found for OSM ID {osm_id}. Skipping.")
         continue
 
-    print(f"Coordinates for {road_id}: {extractor.roads[road_id]}")
+    coords = extractor.roads[osm_id]
+    print(f"Coordinates for {osm_id}: {coords}")
 
-    traffic_data = get_traffic_flow_here_api(API_KEY, extractor.coords)
+    traffic_data = get_traffic_flow_here_api(HERE_API_KEY, coords)
     jam_factor = extract_jam_factor(traffic_data)
-    multiplier = jam_factor_to_multiplier(jam_factor)
+    Jam_multiplier = factor_to_multiplier(jam_factor)
+    weather_data = get_weather_from_tomorrowIo_api(TOMORROW_API_KEY, coords)
+    weather_factor = extract_weather_factor(weather_data)
+    weather_multipler = factor_to_multiplier(weather_factor)
 
-    write_custom_model(road_id, multiplier)
-    print(f"Processed {road_id}: Jam factor = {jam_factor}, Multiplier = {multiplier}")
+    fuel_data = get_fuel_data(coords)
+    edge_weight_multipler = calculate_edge_weight_multipler(fuel_data, Jam_multiplier, weather_multipler)
 
+
+    write_custom_model(str(osm_id), edge_weight_multipler)
+    print(f"Processed {osm_id}: Jam factor = {jam_factor}, Multiplier = {edge_weight_multipler}")

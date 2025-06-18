@@ -2,6 +2,42 @@
   "priority": [
     {
       "if": "osm_id == 464678814",
+      "multiply_by": 1.0
+    },
+    {
+      "if": "osm_id == 498126573",
+      "multiply_by": 1.0
+    },
+    {
+      "if": "osm_id == 856542946",
+      "multiply_by": 0.0001
+    },
+    {
+      "if": "osm_id == 498126586",
+      "multiply_by": 0.0001
+    },
+    {
+      "if": "osm_id == 1078926689",
+      "multiply_by": 1.0
+    },
+    {
+      "if": "osm_id == 240294599",
+      "multiply_by": 1.0
+    },
+    {
+      "if": "osm_id == 761483024",
+      "multiply_by": 1.0
+    },
+    {
+      "if": "osm_id == 46737021",
+      "multiply_by": 1.0
+    },
+    {
+      "if": "osm_id == 240294607",
+      "multiply_by": 1.0
+    },
+    {
+      "if": "osm_id == 994982020",
       "multiply_by": 0.0001
     }
   ]
