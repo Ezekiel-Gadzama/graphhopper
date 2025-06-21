@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from config.database import DatabaseConnection
 from config.settings import DatabaseConfig
 from models.data_class import FuelPoint
-from utils.polyline import Polyline
+import polyline
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -70,16 +70,18 @@ class FuelDatabase:
         SELECT polyline FROM agr_odo_polyline
         WHERE agent_id = %s AND ts >= %s;
         """
+        
         try:
             with self.conn.cursor() as cursor:
                 cursor.execute(query, (agent_id, start_timestamp))
                 result = cursor.fetchone()
                 if result and result[0]:
-                    return Polyline.decode(result[0], 'ffii', 6)
+                    return polyline.decode(result[0], 6)
         except Exception as e:
             logger.error(f"Location data query failed: {str(e)}")
         return []
-
+    
+    
     def get_fuel_points(self, vehicle_id: int, days: int = 7) -> List[FuelPoint]:
         now = datetime.now()
         start_timestamp = int((now - timedelta(days=days)).timestamp())
@@ -91,7 +93,7 @@ class FuelDatabase:
 
         fuel_records = self.get_fuel_data(vehicle['id'], start_timestamp)
         location_data = self.get_vehicle_location_data(vehicle_id, start_timestamp)
-
+        print(f"location_data : {location_data}")
         points = []
         for record in fuel_records:
             sensor_data = record['sensor_data'].split(';')

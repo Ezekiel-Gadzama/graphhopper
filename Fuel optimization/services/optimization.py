@@ -60,6 +60,7 @@ class FuelOptimizer:
         # For simplicity, we'll just get all points and filter
         all_points = []
         for vehicle in db.get_vehicles_with_fuel_sensors():
+            print(f"Vehicle: {vehicle}")
             points = db.get_fuel_points(vehicle['agentid'], days=30)
             all_points.extend(points)
             
