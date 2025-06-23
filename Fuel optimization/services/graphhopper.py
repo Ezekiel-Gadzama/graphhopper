@@ -6,7 +6,7 @@ class GraphHopper:
     def __init__(self, base_url: str = settings.GRAPHHOPPER_URL):
         self.base_url = base_url
 
-    def request_route(self, start_coords: List[float], end_coords: List[float], custom_model: Dict[str, Any]) -> Dict[str, Any]:
+    def request_route(self, start_coord: List[float], end_coord: List[float], custom_model: Dict[str, Any]) -> Dict[str, Any]:
         params = {
             "profile": "car",
             "locale": "en",
@@ -15,8 +15,8 @@ class GraphHopper:
             "custom_model": custom_model,
             "ch.disable": True,
             "points": [
-                [start_coords[1], start_coords[0]],
-                [end_coords[1], end_coords[0]]
+                [start_coord[1], start_coord[0]],
+                [end_coord[1], end_coord[0]]
             ],
             "details": ["osm_id"],
             "points_encoded": False

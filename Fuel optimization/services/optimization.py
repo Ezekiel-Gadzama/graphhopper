@@ -44,10 +44,10 @@ class FuelOptimizer:
         # Get fuel data points along this road
         db = FuelDatabase(settings.DB_CONFIG)
         points_near_road = self._get_points_near_road(road, db)
-        
+        print(f"\n\points_near_road : {points_near_road}")
         if not points_near_road:
             # No specific data for this road, use general coefficients
-            return self.fuel_coefficients.get(road.road_type.value, 1.0)
+            return self.fuel_coefficients.get(road.road_type, 1.0)
             
         # Calculate specific coefficient for this road
         segments = self.fuel_analyzer.create_segments(points_near_road)
@@ -60,15 +60,15 @@ class FuelOptimizer:
         # For simplicity, we'll just get all points and filter
         all_points = []
         for vehicle in db.get_vehicles_with_fuel_sensors():
-            print(f"Vehicle: {vehicle}")
             points = db.get_fuel_points(vehicle['agentid'], days=30)
             all_points.extend(points)
             
         # Filter points that are close to any point on the road
         # This is simplified - in reality you'd use proper spatial queries
+        print(f"all_points: {all_points[:5]}")
         return [
             p for p in all_points
-            if any(self._distance(p.latitude, p.longitude, lat, lon) < 0.01  # ~1km
+            if any(self._distance(p.latitude, p.longitude, lat, lon) < 10  # ~1km
                   for lon, lat in road.coordinates)
         ]
 
@@ -114,6 +114,6 @@ class FuelOptimizer:
             multiplier = fuel_multiplier
             
             self.custom_model.add_priority_rule(osm_id, multiplier)
-            print(f"Processed OSM ID {osm_id}: {road.road_type.value} road, multiplier={multiplier:.2f}")
+            print(f"Processed OSM ID {osm_id}: {road.road_type} road, multiplier={multiplier:.2f}")
         
         self.custom_model.save_to_file()

@@ -65,18 +65,24 @@ class FuelDatabase:
             logger.error(f"Fuel data query failed: {str(e)}")
             return []
 
-    def get_vehicle_location_data(self, agent_id: int, start_timestamp: int) -> List[Tuple[float, float, int, float]]:
+    def get_vehicle_location_data(self, agent_id: int, start_timestamp: int) -> List[Tuple[float, float, int]]:
+        """Returns list of (latitude, longitude, timestamp) tuples"""
         query = """
-        SELECT polyline FROM agr_odo_polyline
+        SELECT polyline, ts FROM agr_odo_polyline
         WHERE agent_id = %s AND ts >= %s;
         """
         
         try:
             with self.conn.cursor() as cursor:
                 cursor.execute(query, (agent_id, start_timestamp))
-                result = cursor.fetchone()
-                if result and result[0]:
-                    return polyline.decode(result[0], 6)
+                results = cursor.fetchall()
+                location_data = []
+                for result in results:
+                    if result and result[0]:
+                        coords = polyline.decode(result[0], 6)
+                        ts = result[1]
+                        location_data.extend([(lat, lon, ts) for lat, lon in coords])
+                return location_data
         except Exception as e:
             logger.error(f"Location data query failed: {str(e)}")
         return []
@@ -93,7 +99,6 @@ class FuelDatabase:
 
         fuel_records = self.get_fuel_data(vehicle['id'], start_timestamp)
         location_data = self.get_vehicle_location_data(vehicle_id, start_timestamp)
-        print(f"location_data : {location_data}")
         points = []
         for record in fuel_records:
             sensor_data = record['sensor_data'].split(';')
@@ -122,7 +127,7 @@ class FuelDatabase:
                         speed=speed,
                         latitude=location[0],
                         longitude=location[1],
-                        gps_speed=location[3]
+                        gps_speed=speed  # Using the same speed value since we don't have GPS speed
                     ))
 
         return points
