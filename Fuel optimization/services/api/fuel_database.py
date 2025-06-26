@@ -4,8 +4,9 @@ from datetime import datetime, timedelta
 from config.database import DatabaseConnection
 from config.settings import DatabaseConfig
 from models.data_class import FuelPoint
-import polyline
+from .polyline import Polyline
 import logging
+from pyproj import Transformer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -68,26 +69,29 @@ class FuelDatabase:
     def get_vehicle_location_data(self, agent_id: int, start_timestamp: int) -> List[Tuple[float, float, int]]:
         """Returns list of (latitude, longitude, timestamp) tuples"""
         query = """
-        SELECT polyline, ts FROM agr_odo_polyline
+        SELECT * FROM ag_polylines
         WHERE agent_id = %s AND ts >= %s;
         """
-        
         try:
             with self.conn.cursor() as cursor:
                 cursor.execute(query, (agent_id, start_timestamp))
                 results = cursor.fetchall()
                 location_data = []
                 for result in results:
-                    if result and result[0]:
-                        coords = polyline.decode(result[0], 6)
-                        ts = result[1]
-                        location_data.extend([(lat, lon, ts) for lat, lon in coords])
+                    if result and result[2]:
+                        try:
+                            coords = Polyline.decode(result[2], format='ffii', precision=6)
+                        except Exception as decode_err:
+                            logger.warning(f"Decoding failed for: {result[2][:10]}... Error: {decode_err}")
+                            continue
+                        print(f"Print Coord[0]: {coords[0]}")
+                        location_data.extend([(lat, lon, i1, i2) for lat, lon, i1, i2 in coords])
                 return location_data
         except Exception as e:
             logger.error(f"Location data query failed: {str(e)}")
         return []
-    
-    
+
+
     def get_fuel_points(self, vehicle_id: int, days: int = 7) -> List[FuelPoint]:
         now = datetime.now()
         start_timestamp = int((now - timedelta(days=days)).timestamp())
@@ -115,10 +119,9 @@ class FuelDatabase:
                 speed = float(parts[2])
 
                 timestamp = record['unixstarttimestamp'] + seconds
-                location = next(
-                    (loc for loc in location_data if abs(loc[2] - timestamp) <= 5),
-                    None
-                )
+                location = None
+                if location_data:
+                    location = location_data[0]
 
                 if location and speed > 0:
                     points.append(FuelPoint(

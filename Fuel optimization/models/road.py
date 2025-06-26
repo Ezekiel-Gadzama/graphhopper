@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 import osmium
 
 class Road:
@@ -8,13 +8,16 @@ class Road:
         self.road_type = road_type
 
 class RoadExtractor(osmium.SimpleHandler):
-    def __init__(self, target_osm_ids: List[int]):
+    def __init__(self, target_osm_ids: Optional[List[int]] = None):
         super().__init__()
-        self.target_osm_ids = set(target_osm_ids)
+        self.target_osm_ids = set(target_osm_ids) if target_osm_ids else None
         self.roads = {}
 
     def way(self, w) -> None:
-        if w.id in self.target_osm_ids:
+        if 'highway' not in w.tags:
+            return  # Skip non-road elements
+
+        if self.target_osm_ids is None or w.id in self.target_osm_ids:
             coords = [(node.lon, node.lat) for node in w.nodes]
             road_type = w.tags.get("highway", "unknown")
             self.roads[w.id] = Road(w.id, coords, road_type)

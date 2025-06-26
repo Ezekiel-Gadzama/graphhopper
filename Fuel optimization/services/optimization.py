@@ -10,6 +10,7 @@ from services.api.fuel_database import FuelDatabase
 from services.fuel_analysis import FuelAnalyzer
 from config.settings import settings
 import json
+from math import radians, cos, sin, asin, sqrt
 from models.data_class import FuelPoint
 
 
@@ -44,7 +45,12 @@ class FuelOptimizer:
         # Get fuel data points along this road
         db = FuelDatabase(settings.DB_CONFIG)
         points_near_road = self._get_points_near_road(road, db)
-        print(f"\n\points_near_road : {points_near_road}")
+
+        if len(points_near_road) > 0:
+            print(f"Total points: {len(points_near_road)}")
+            print("Kiss me")
+        # print(f"\n\points_near_road : {points_near_road}")
+        
         if not points_near_road:
             # No specific data for this road, use general coefficients
             return self.fuel_coefficients.get(road.road_type, 1.0)
@@ -60,21 +66,32 @@ class FuelOptimizer:
         # For simplicity, we'll just get all points and filter
         all_points = []
         for vehicle in db.get_vehicles_with_fuel_sensors():
-            points = db.get_fuel_points(vehicle['agentid'], days=30)
+            points = db.get_fuel_points(vehicle['agentid'], days=1000)
             all_points.extend(points)
             
         # Filter points that are close to any point on the road
         # This is simplified - in reality you'd use proper spatial queries
-        print(f"all_points: {all_points[:5]}")
-        return [
-            p for p in all_points
-            if any(self._distance(p.latitude, p.longitude, lat, lon) < 10  # ~1km
-                  for lon, lat in road.coordinates)
-        ]
+        filtered = []
+        for p in all_points:
+            print(f"p.timestamp: {p.timestamp}, fuel_level: {p.fuel_level}, speed: {p.speed}")
+            if any(self._distance(p.latitude, p.longitude, lat, lon) < 33 for lon, lat in road.coordinates):
+                filtered.append(p)
+        return filtered
+
 
     def _distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-        """Simple distance calculation (in degrees)"""
-        return ((lat1 - lat2)**2 + (lon1 - lon2)**2)**0.5
+        """Calculate haversine distance (in kilometers) between two lat/lon points"""
+        R = 6371  # Earth radius in kilometers
+        lat1r, lon1r, lat2r, lon2r = map(radians, [lat1, lon1, lat2, lon2])
+        dlat = lat2r - lat1r
+        dlon = lon2r - lon1r
+        a = sin(dlat/2)**2 + cos(lat1r)*cos(lat2r)*sin(dlon/2)**2
+        c = 2 * asin(sqrt(a))
+        distance = R * c
+        print(f"target_lat: {lat1} target_lon: {lon1} | lat: {lat2} long: {lon2} with distance: {distance}KM")
+        return distance
+
+
     
     def calculate_edge_weight_multiplier(
         self,
@@ -85,35 +102,57 @@ class FuelOptimizer:
             return fuel_multiplier * jam_multiplier * weather_multiplier
 
     def update_custom_model(self, osm_ids: List[int]) -> None:
-        """Update custom model with fuel coefficients for specified roads"""
-        extractor = RoadExtractor(osm_ids)
+        # Load all roads
+        extractor = RoadExtractor()
         extractor.apply_file(settings.OSM_FILE_PATH, locations=True)
-        
-        for osm_id in osm_ids:
-            if osm_id not in extractor.roads:
-                continue
-                
-            road = extractor.roads[osm_id]
+        print(f"Number of Roads: {len(extractor.roads)}")
+
+############################Just to process few road that are close bye#############################
+
+        # Define target point
+        target_lat = 55.7656327
+        target_lon = 37.5421311
+        # Compute distances from each road to the target point
+        road_distances = []
+        for osm_id, road in extractor.roads.items():
+            if road.coordinates:
+                for lon, lat in road.coordinates:
+                    dist = self._distance(target_lat, target_lon, lat, lon)
+                    if dist < 1:
+                        road_distances.append((osm_id, road, dist))
+                        break  # Avoid adding the same road multiple times
+            if len(road_distances) >= 5:
+                break
+
+
+        # Sort by distance and keep top 5
+        closest_roads = sorted(road_distances, key=lambda x: x[2])[:5]
+
+##############################################################################
+
+        # Process only the closest 5 roads
+        for osm_id, road, dist in closest_roads:
+            print(f"Processing OSM ID {osm_id}: with distance {dist} type={road.road_type}")
+
             fuel_multiplier = self.process_road(road)
 
-            # # Get traffic data
+            # Optionally fetch traffic and weather data here
             # traffic_raw = self.here_api.get_traffic_flow(road.coordinates)
             # traffic_data = self.here_api.extract_traffic_data(traffic_raw)
-            
-            # # Get weather data
             # weather_raw = self.tomorrow_io.get_weather_data(road.coordinates)
             # weather_data = self.tomorrow_io.extract_weather_data(weather_raw)
 
-            # # Calculate multiplier
             # multiplier = self.calculate_edge_weight_multiplier(
             #     fuel_multiplier=fuel_multiplier,
             #     jam_multiplier=traffic_data.jam_factor,
             #     weather_multiplier=weather_data.weather_factor
             # )
 
-            multiplier = fuel_multiplier
-            
-            self.custom_model.add_priority_rule(osm_id, multiplier)
-            print(f"Processed OSM ID {osm_id}: {road.road_type} road, multiplier={multiplier:.2f}")
-        
+            # multiplier = fuel_multiplier
+
+            # self.custom_model.add_priority_rule(osm_id, multiplier)
+            # print(f"Added rule: OSM ID {osm_id}, multiplier={multiplier:.2f}")
+
+            break
+
         self.custom_model.save_to_file()
