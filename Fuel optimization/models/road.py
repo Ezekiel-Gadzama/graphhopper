@@ -18,6 +18,6 @@ class RoadExtractor(osmium.SimpleHandler):
             return  # Skip non-road elements
 
         if self.target_osm_ids is None or w.id in self.target_osm_ids:
-            coords = [(node.lon, node.lat) for node in w.nodes]
+            coords = [(node.lat, node.lon) for node in w.nodes]
             road_type = w.tags.get("highway", "unknown")
             self.roads[w.id] = Road(w.id, coords, road_type)

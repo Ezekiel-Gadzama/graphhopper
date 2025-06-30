@@ -6,18 +6,11 @@ from utils.visualization import visualize_route
 from config.settings import settings
 
 def main():
-    # Define OSM IDs to process
-    unique_osm_ids = [
-        1391537230, 1391557173, 1391552083, 1391333467
-        # 498126573, 498126585, 498126586, 498126562,
-        # 240294599, 761483024, 46737021, 240294607
-    ]
-
     # Initialize and run optimization
     optimizer = FuelOptimizer()
     
-    # Update custom model with all OSM IDs at once (more efficient)
-    optimizer.update_custom_model(unique_osm_ids)
+    # Update custom model with all
+    optimizer.update_custom_model()
 
     # Request route from GraphHopper
     start = (55.761368, 37.537752)  # Latitude, Longitude

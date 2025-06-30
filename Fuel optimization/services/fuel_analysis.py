@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Any
 from datetime import datetime, timedelta
 from services.api.fuel_database import FuelDatabase
 from models.data_class import (
@@ -82,7 +82,6 @@ class FuelAnalyzer:
             if segment.road_type not in segments_by_type:
                 segments_by_type[segment.road_type] = []
             segments_by_type[segment.road_type].append(segment)
-        
         # Calculate average consumption per km for each road type
         consumption = {}
         for road_type, type_segments in segments_by_type.items():
@@ -92,6 +91,7 @@ class FuelAnalyzer:
         
         # Calculate coefficients relative to primary roads
         base_consumption = consumption.get(self.base_road_type, 1.0)
+        print(f"consumption is : {consumption}")
         coefficients = {
             road_type: base_consumption / cons if cons > 0 else 1.0
             for road_type, cons in consumption.items()
@@ -99,29 +99,32 @@ class FuelAnalyzer:
         
         return coefficients
 
-    def analyze_vehicle(self, vehicle_id: int, days: int = 7) -> VehicleFuelProfile:
+    def analyze_vehicle(self, vehicle: Dict[str, Any], db: FuelDatabase, days: int = 7) -> VehicleFuelProfile:
         """Analyze fuel consumption for a single vehicle"""
-        db = FuelDatabase(settings.DB_CONFIG)
-        points = db.get_fuel_points(vehicle_id, days)
+        points = db.get_fuel_points(vehicle, days)
         processed_points = self.process_fuel_data(points)
         segments = self.create_segments(processed_points)
+        print(f"size of segments: {len(segments)}")
         coefficients = self.calculate_coefficients(segments)
+        print(f"size of coefficients: {len(coefficients)} with coefficients: {coefficients}")
         
         return VehicleFuelProfile(
-            vehicle_id=str(vehicle_id),
-            vehicle_type="",  # Will be filled from DB
+            vehicle_id=str(vehicle['agentid']),
+            vehicle_type=vehicle['name'],
             segments=segments,
-            coefficients=coefficients
+            coefficients=coefficients,
+            fuel_points=processed_points
         )
 
-    def analyze_fleet(self, vehicle_ids: List[int], days: int = 7) -> FleetFuelProfile:
+    def analyze_fleet(self, days: int = 7) -> FleetFuelProfile:
         """Analyze fuel consumption for multiple vehicles"""
-        vehicles = []
+        db = FuelDatabase(settings.DB_CONFIG)
+        vehicles = db.get_vehicles_with_fuel_sensors()
+        vehicles_profile = []
         all_coefficients = []
-        
-        for vehicle_id in vehicle_ids:
-            profile = self.analyze_vehicle(vehicle_id, days)
-            vehicles.append(profile)
+        for vehicle in vehicles[:10]: # remove [:10] later
+            profile = self.analyze_vehicle(vehicle, db, days)
+            vehicles_profile.append(profile)
             all_coefficients.append(profile.coefficients)
         
         # Calculate average and median coefficients across fleet
@@ -138,7 +141,7 @@ class FuelAnalyzer:
         }
         
         return FleetFuelProfile(
-            vehicles=vehicles,
+            vehicles=vehicles_profile,
             average_coefficients=average_coefficients,
             median_coefficients=median_coefficients
         )

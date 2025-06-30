@@ -1,18 +1,17 @@
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
-from typing import Dict, List
+from typing import Dict, List, Optional
 from models.custom_model import CustomModel
 from models.road import RoadExtractor, Road
 from services.api.here_api import HereAPI
 from services.api.tomorrow_io import TomorrowIO
-from services.api.fuel_database import FuelDatabase
 from services.fuel_analysis import FuelAnalyzer
 from config.settings import settings
 import json
 from math import radians, cos, sin, asin, sqrt
 from models.data_class import FuelPoint
-
+from utils.geo import calculate_distance
 
 class FuelOptimizer:
     def __init__(self):
@@ -20,78 +19,13 @@ class FuelOptimizer:
         self.tomorrow_io = TomorrowIO()
         self.fuel_analyzer = FuelAnalyzer()
         self.custom_model = CustomModel()
-        self.fuel_coefficients = self._load_fuel_coefficients()
+        self.fleet_profile = self.fuel_analyzer.analyze_fleet(300)
+        self.fuel_type_coefficients = self.fleet_profile.median_coefficients
+    
+    def process_Unique_road_fuel_weight(self, road_points) -> float:
+        # Analyze it and get a fuel coefficent multupler
 
-    def _load_fuel_coefficients(self) -> Dict[str, float]:
-        """Load or calculate fuel coefficients"""
-        try:
-            with open('fuel_coefficients.json') as f:
-                return json.load(f)
-        except FileNotFoundError:
-            # Example - in real usage you'd analyze actual vehicles
-            fleet_profile = self.fuel_analyzer.analyze_fleet([196, 197])  # Example vehicle IDs
-            coefficients = fleet_profile.median_coefficients
-            
-            with open('fuel_coefficients.json', 'w') as f:
-                json.dump(coefficients, f)
-                
-            return coefficients
-
-    def process_road(self, road: Road) -> float:
-        """Process a single road segment to calculate its fuel multiplier"""
-        if not road.coordinates:
-            return 1.0  # Default multiplier
-            
-        # Get fuel data points along this road
-        db = FuelDatabase(settings.DB_CONFIG)
-        points_near_road = self._get_points_near_road(road, db)
-
-        if len(points_near_road) > 0:
-            print(f"Total points: {len(points_near_road)}")
-            print("Kiss me")
-        # print(f"\n\points_near_road : {points_near_road}")
-        
-        if not points_near_road:
-            # No specific data for this road, use general coefficients
-            return self.fuel_coefficients.get(road.road_type, 1.0)
-            
-        # Calculate specific coefficient for this road
-        segments = self.fuel_analyzer.create_segments(points_near_road)
-        coefficients = self.fuel_analyzer.calculate_coefficients(segments)
-        return coefficients.get(road.road_type, 1.0)
-
-    def _get_points_near_road(self, road: Road, db: FuelDatabase) -> List[FuelPoint]:
-        """Get fuel points that are near the specified road"""
-        # In a real implementation, you'd query points within a buffer of the road
-        # For simplicity, we'll just get all points and filter
-        all_points = []
-        for vehicle in db.get_vehicles_with_fuel_sensors():
-            points = db.get_fuel_points(vehicle['agentid'], days=1000)
-            all_points.extend(points)
-            
-        # Filter points that are close to any point on the road
-        # This is simplified - in reality you'd use proper spatial queries
-        filtered = []
-        for p in all_points:
-            print(f"p.timestamp: {p.timestamp}, fuel_level: {p.fuel_level}, speed: {p.speed}")
-            if any(self._distance(p.latitude, p.longitude, lat, lon) < 33 for lon, lat in road.coordinates):
-                filtered.append(p)
-        return filtered
-
-
-    def _distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-        """Calculate haversine distance (in kilometers) between two lat/lon points"""
-        R = 6371  # Earth radius in kilometers
-        lat1r, lon1r, lat2r, lon2r = map(radians, [lat1, lon1, lat2, lon2])
-        dlat = lat2r - lat1r
-        dlon = lon2r - lon1r
-        a = sin(dlat/2)**2 + cos(lat1r)*cos(lat2r)*sin(dlon/2)**2
-        c = 2 * asin(sqrt(a))
-        distance = R * c
-        print(f"target_lat: {lat1} target_lon: {lon1} | lat: {lat2} long: {lon2} with distance: {distance}KM")
-        return distance
-
-
+        return 1.0
     
     def calculate_edge_weight_multiplier(
         self,
@@ -100,41 +34,54 @@ class FuelOptimizer:
         weather_multiplier: float
         ) -> float:
             return fuel_multiplier * jam_multiplier * weather_multiplier
+    
+    def group_points_by_road_id(self, roads_points: List[FuelPoint]) -> Dict[int, List[FuelPoint]]:
+        grouped = {}
+        for point in roads_points:
+            road_id = point.osm_roadID
+            if road_id is not None:
+                grouped.setdefault(road_id, []).append(point)
+        return grouped
 
-    def update_custom_model(self, osm_ids: List[int]) -> None:
+    def update_custom_model(self) -> None:
         # Load all roads
         extractor = RoadExtractor()
         extractor.apply_file(settings.OSM_FILE_PATH, locations=True)
         print(f"Number of Roads: {len(extractor.roads)}")
+        points = self.fleet_profile.vehicles[0].fuel_points # try for just the first vehicle
+        grouped_points = self.group_points_by_road_id(points)
+        print(f"Coefficients: {self.fuel_type_coefficients}")
+        print(f"grouped points: {grouped_points}")
 
 ############################Just to process few road that are close bye#############################
 
         # Define target point
-        target_lat = 55.7656327
-        target_lon = 37.5421311
+        target_lat = 55.470371
+        target_lon = 37.572002
         # Compute distances from each road to the target point
         road_distances = []
         for osm_id, road in extractor.roads.items():
             if road.coordinates:
-                for lon, lat in road.coordinates:
-                    dist = self._distance(target_lat, target_lon, lat, lon)
+                for lat, lon in road.coordinates:
+                    dist = calculate_distance(target_lat, target_lon, lat, lon)
                     if dist < 1:
                         road_distances.append((osm_id, road, dist))
                         break  # Avoid adding the same road multiple times
-            if len(road_distances) >= 5:
-                break
 
-
+        print(f"Lenght of roads: {len(road_distances)}")
         # Sort by distance and keep top 5
         closest_roads = sorted(road_distances, key=lambda x: x[2])[:5]
 
 ##############################################################################
 
         # Process only the closest 5 roads
-        for osm_id, road, dist in closest_roads:
-            print(f"Processing OSM ID {osm_id}: with distance {dist} type={road.road_type}")
+        for osm_id, road in extractor.roads.items():
+            if(road.road_type != "residential"): # this is because my fuel data access only contains residential areas for now.
+                continue
 
-            fuel_multiplier = self.process_road(road)
+            print(f"Processing OSM ID {osm_id}: type={road.road_type}")
+            # fuel_multiplier = self.process_Unique_road_fuel_weight(grouped_points.get(osm_id, []))
+            type_coefficient = self.fuel_type_coefficients.get(road.road_type, 1.0)
 
             # Optionally fetch traffic and weather data here
             # traffic_raw = self.here_api.get_traffic_flow(road.coordinates)

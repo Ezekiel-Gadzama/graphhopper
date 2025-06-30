@@ -35,6 +35,7 @@ class FuelPoint:
     longitude: Optional[float] = None
     gps_speed: Optional[float] = None
     road_type: Optional[RoadType] = None
+    osm_roadID: Optional[int] = None
 
 @dataclass
 class RoadSegment:
@@ -51,6 +52,7 @@ class VehicleFuelProfile:
     vehicle_type: str
     segments: List[RoadSegment]
     coefficients: Dict[RoadType, float]
+    fuel_points: List[FuelPoint]
 
 @dataclass
 class FleetFuelProfile:
