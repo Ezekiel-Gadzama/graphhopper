@@ -25,6 +25,7 @@ class RoadType(str, Enum):
     UNCLASSIFIED = "unclassified"
     RESIDENTIAL = "residential"
     SERVICE = "service"
+    UNKNOWN = "unknown"
 
 @dataclass
 class FuelPoint:

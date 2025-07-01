@@ -132,7 +132,6 @@ class FuelDatabase:
         
         for record in fuel_records[:10]: 
             sensor_data = record['sensor_data'].split(';')
-            print("next")
             for data_point in sensor_data[:10]:
                 if not data_point:
                     continue
@@ -143,7 +142,7 @@ class FuelDatabase:
                 seconds = int(parts[0])
                 fuel_level = float(parts[1])
                 speed = float(parts[2])
-                timestamp = record['unixstarttimestamp'] + seconds
+                timestamp = record['unixstarttimestamp'] + seconds  
                 
                 # Find the closest location by timestamp
                 location = None
@@ -171,7 +170,7 @@ class FuelDatabase:
                         speed=speed,
                         latitude=location[0],
                         longitude=location[1],
-                        gps_speed=speed,
+                        gps_speed=location[3],
                         road_type=self.get_road_type(location[0], location[1]),
                         osm_roadID=self.get_road_id(location[0], location[1])
                     ))
