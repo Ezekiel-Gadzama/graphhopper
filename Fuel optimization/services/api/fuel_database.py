@@ -6,7 +6,6 @@ from config.settings import DatabaseConfig
 from models.data_class import FuelPoint
 from .polyline import Polyline
 import logging
-from pyproj import Transformer
 import requests
 
 logging.basicConfig(level=logging.INFO)

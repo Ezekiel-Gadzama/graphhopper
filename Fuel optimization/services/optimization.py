@@ -1,28 +1,27 @@
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
-from typing import Dict, List, Optional
+from typing import Dict, List
 from models.custom_model import CustomModel
 from models.road import RoadExtractor, Road
-from services.api.here_api import HereAPI
+from services.api.here_api import HereMapAPI, HereTerrainAPI
 from services.api.tomorrow_io import TomorrowIO
 from services.fuel_analysis import FuelAnalyzer
 from config.settings import settings
-import json
-from math import radians, cos, sin, asin, sqrt
-from models.data_class import FuelPoint
+from models.data_class import FuelPoint, RoadProfile
 from utils.geo import calculate_distance
 
 class FuelOptimizer:
     def __init__(self):
-        self.here_api = HereAPI()
+        self.here_map_api = HereMapAPI()
+        self.here_terrain_api = HereTerrainAPI()
         self.tomorrow_io = TomorrowIO()
         self.fuel_analyzer = FuelAnalyzer()
         self.custom_model = CustomModel()
         self.fleet_profile = self.fuel_analyzer.analyze_fleet(300)
         self.fuel_type_coefficients = self.fleet_profile.median_coefficients
     
-    def process_Unique_road_fuel_weight(self, road_points) -> float:
+    def process_Unique_road_fuel_weight(self, roadProfile: RoadProfile) -> float:
         # Analyze it and get a fuel coefficent multupler
 
         return 1.0
@@ -46,12 +45,13 @@ class FuelOptimizer:
     def update_custom_model(self) -> None:
         # Load all roads
         extractor = RoadExtractor()
-        extractor.apply_file(settings.OSM_FILE_PATH, locations=True)
-        print(f"Number of Roads: {len(extractor.roads)}")
+        # extractor.apply_file(settings.OSM_FILE_PATH, locations=True)
+        # print(f"Number of Roads: {len(extractor.roads)}")
         points = self.fleet_profile.vehicles[0].fuel_points # try for just the first vehicle
         grouped_points = self.group_points_by_road_id(points)
         print(f"Coefficients: {self.fuel_type_coefficients}")
         print(f"grouped points: {grouped_points}")
+        print(f"Invalid agents: {self.fuel_analyzer.invalid_agents}")
 
 ############################Just to process few road that are close bye#############################
 
@@ -75,24 +75,13 @@ class FuelOptimizer:
 ##############################################################################
 
         # Process only the closest 5 roads
-        for osm_id, road in extractor.roads.items():
-            if(road.road_type != "residential"): # this is because my fuel data access only contains residential areas for now.
-                continue
-
+        for osm_id, road in closest_roads:
             print(f"Processing OSM ID {osm_id}: type={road.road_type}")
             # fuel_multiplier = self.process_Unique_road_fuel_weight(grouped_points.get(osm_id, []))
             type_coefficient = self.fuel_type_coefficients.get(road.road_type, 1.0)
 
-            # Optionally fetch traffic and weather data here
-            # traffic_raw = self.here_api.get_traffic_flow(road.coordinates)
-            # traffic_data = self.here_api.extract_traffic_data(traffic_raw)
-            # weather_raw = self.tomorrow_io.get_weather_data(road.coordinates)
-            # weather_data = self.tomorrow_io.extract_weather_data(weather_raw)
-
             # multiplier = self.calculate_edge_weight_multiplier(
             #     fuel_multiplier=fuel_multiplier,
-            #     jam_multiplier=traffic_data.jam_factor,
-            #     weather_multiplier=weather_data.weather_factor
             # )
 
             # multiplier = fuel_multiplier
