@@ -15,6 +15,8 @@ android/libs/graphhopper-*-android.jar
 .idea
 .idea/
 *iml
+**/__pycache__/
+*.py[cod]
 # keep these web/ paths for now. they are outdated but probably useful for a while in case we switch between branches
 /web/node
 /web/src/main/resources/assets/js/config/options_prod.js
@@ -43,3 +45,7 @@ local.properties
 .DS_Store
 /graph-cache
 package-lock.json
+# secret info
+/secret
+.env
+*.poly

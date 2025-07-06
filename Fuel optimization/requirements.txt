@@ -1,5 +1,7 @@
-osmium
-requests
 python-dotenv
 folium
 branca
+psycopg2-binary
+sshtunnel
+osmium
+requests
