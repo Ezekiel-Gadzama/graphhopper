@@ -10,9 +10,16 @@ from models.road import RoadExtractor
 traffic_api = YandexTrafficAndElevationAPI()
 extractor = RoadExtractor()
 extractor.apply_file(settings.OSM_FILE_PATH, locations=True)
-first_road = next(iter(extractor.roads.values()))
-elev_data = traffic_api.get_elevation_for_road(first_road)
-print("Elevation data:", elev_data)
+
+print(f"Number of Roads: {len(extractor.roads)}")
+
+# Use roads instead of grid generation
+traffic_api.fetch_moscow_elevation_grid(extractor)
+
+for road in list(extractor.roads.values())[:100]: # Limit to first 100 roads for testing
+    print(f"First road: OSM ID {road.osm_id} and coordinates {road.coordinates[:2]}")
+    elev_data = traffic_api.get_elevation_for_road(road)
+    print("Elevation data:", elev_data)
 
 # def main():
 #     # Initialize and run optimization
