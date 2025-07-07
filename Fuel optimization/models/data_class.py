@@ -37,11 +37,29 @@ class TrafficData:
     speed: Optional[float] = None          # in km/h
     free_flow_speed: Optional[float] = None  # in km/h
 
+    @classmethod
+    def from_api_response(cls, api_data: Dict) -> 'TrafficData':
+        """Create TrafficData from raw API response"""
+        return cls(
+            jam_factor=api_data.get('jamFactor', 0.0),
+            speed=api_data.get('speed'),
+            free_flow_speed=api_data.get('freeFlowSpeed')
+        )
+
 @dataclass
 class WeatherData:
     weather_factor: float
     temperature: Optional[float] = None    # in °C
     precipitation: Optional[float] = None  # in mm
+
+    @classmethod
+    def from_api_response(cls, api_data: Dict) -> 'WeatherData':
+        """Create WeatherData from raw API response"""
+        return cls(
+            weather_factor=api_data.get('weatherFactor', 1.0),  # Default to 1.0 (no impact)
+            temperature=api_data.get('temperature'),
+            precipitation=api_data.get('precipitation')
+        )
 
 @dataclass
 class RoadProfile:
@@ -60,21 +78,36 @@ class RoadProfile:
     weather_data: Optional[WeatherData] = None
 
     @classmethod
-    def from_here_api(cls, here_data: Dict, road: Road):
+    def from_here_api(cls, road: Road, road_traffic_data: Dict, road_terrain_data: Dict, road_weather_data: Dict):
         """Factory method to create RoadProfile from HERE API response"""
-        attrs = here_data.get("attributes", {})
+        # Convert raw API data to proper data classes
+        traffic_data = (
+            TrafficData.from_api_response(road_traffic_data) 
+            if road_traffic_data else None
+        )
+        
+        weather_data = (
+            WeatherData.from_api_response(road_weather_data)
+            if road_weather_data else None
+        )
+
+        # Extract attributes from traffic data (assuming this contains road attributes)
+        attrs = road_traffic_data.get("attributes", {})
+        
         return cls(
             road=road,
-            length=here_data.get("length", 0.0),
+            length=road_terrain_data.get("length", road.length),  # Fallback to road.length
             surface_type=SurfaceType(attrs.get("surfaceType", "UNKNOWN")),
             condition=RoadCondition(attrs.get("condition", "UNKNOWN")),
-            elevation=here_data.get("elevation", 0.0),
+            elevation=road_terrain_data.get("elevation", 0.0),
             is_toll_road=attrs.get("isTollRoad", False),
             is_tunnel=attrs.get("isTunnel", False),
             is_bridge=attrs.get("isBridge", False),
             has_speed_bumps=attrs.get("hasSpeedBumps", False),
             number_of_lanes=attrs.get("numberOfLanes", 1),
-            shoulder_type=ShoulderType(attrs.get("shoulderType", "UNKNOWN"))
+            shoulder_type=ShoulderType(attrs.get("shoulderType", "UNKNOWN")),
+            traffic_data=traffic_data,
+            weather_data=weather_data
         )
 
 class RoadType(str, Enum):

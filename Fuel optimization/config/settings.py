@@ -22,6 +22,7 @@ class DatabaseConfig:
 
 class Settings:
     HERE_API_KEY = os.getenv("HERE_API_KEY")
+    HERE_TERRAIN_API_KEY = os.getenv("HERE_TERRAIN_API_KEY")
     TOMORROW_API_KEY = os.getenv("TOMORROW_API_KEY")
     OSM_FILE_PATH = str(Path(BASE_DIR).parent / "moscow.osm.pbf")
     CUSTOM_MODEL_PATH = str(Path(BASE_DIR).parent / "custom_model.json")
