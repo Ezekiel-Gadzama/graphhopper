@@ -4,52 +4,49 @@ sys.path.append(str(Path(__file__).parent.parent))
 from typing import Dict, List, Optional
 from models.custom_model import CustomModel
 from models.road import RoadExtractor, Road
-from services.api.here_api import HereMapAPI, HereTerrainAPI
+from services.api.yandex_opentopo import YandexTrafficAndElevationAPI
 from services.api.tomorrow_io import TomorrowIO
 from services.fuel_analysis import FuelAnalyzer
 from models.data_class import FuelPoint, RoadProfile
 from services.RoadCoefficientProcessor import RoadCoefficientProcessor
-from utils.geo import calculate_distance
+from config.settings import settings
 
 class FuelOptimizer:
     def __init__(self):
-        self.here_map_api = HereMapAPI()
-        self.here_terrain_api = HereTerrainAPI()
+        self.traffic_elev_api = YandexTrafficAndElevationAPI()
         self.tomorrow_io = TomorrowIO()
         self.fuel_analyzer = FuelAnalyzer()
         self.coefficient_processor = RoadCoefficientProcessor()
         self.custom_model = CustomModel()
 
     def create_road_profile(self, road: Road) -> RoadProfile:
-        """Create road profile with current traffic, terrain, and weather data"""
-        # Get cached data if available
-        traffic_data = self.here_map_api.get_traffic_data()
-        terrain_data = self.here_terrain_api.get_terrain_data()
-        weather_data = self.tomorrow_io.get_weather_data()
+        traffic = self.traffic_elev_api.get_traffic(bbox="37.3,55.4,37.9,56.0")
+        matching_traffic = self._find_matching_traffic(road, traffic)
 
-        # Extract relevant data for this specific road
-        road_traffic = self._find_matching_traffic(road, traffic_data)
-        road_terrain = self._find_matching_terrain(road, terrain_data)
-        road_weather = self._find_matching_weather(road, weather_data)
-            
-        return RoadProfile.from_here_api(
+        elev_data = self.traffic_elev_api.get_elevation_for_road(road)
+        weather = self.tomorrow_io.get_weather_data()
+        matching_weather = self._find_matching_weather(road, weather)
+
+        return RoadProfile.from_osm_yandex_combined(
             road=road,
-            road_traffic_data=road_traffic,
-            road_terrain_data=road_terrain,
-            road_weather_data=road_weather
+            traffic_data=matching_traffic or {},
+            elevation_data=elev_data,
+            weather_data=matching_weather or {},
         )
     
-    def _find_matching_traffic(self, road: Road, traffic_data: Dict) -> Optional[Dict]:
-        """Find traffic data for a specific road segment"""
-        # Implementation depends on your road identification logic
-        # Example: match by road ID or coordinates
-        return traffic_data.get(road.id) or None
+    def _find_matching_traffic(self, road: Road, traffic: Dict) -> Dict:
+        # Simplest strategy: pick first traffic feature whose polyline overlaps first coordinate
+        for feat in traffic.get("features", []):
+            coords = feat.get("geometry", {}).get("coordinates", [])
+            if coords and (road.coordinates[0][::-1] in coords):
+                props = feat.get("properties", {})
+                return {
+                    "jamFactor": props.get("jamFactor", 0.0),
+                    "speed": props.get("speedKmH"),
+                    "freeFlowSpeed": props.get("freeFlowSpeedKmH")
+                }
+        return {}
 
-    def _find_matching_terrain(self, road: Road, terrain_data: Dict) -> Optional[Dict]:
-        """Find terrain data for a specific road segment"""
-        # Implementation depends on your terrain API response structure
-        return terrain_data.get(road.id) or None
-    
     def _find_matching_weather(self, road: Road, weather_data: Dict) -> Optional[Dict]:
         """Find weather data for a specific road segment"""
         # Implementation depends on how weather data is organized
@@ -68,8 +65,8 @@ class FuelOptimizer:
     def update_custom_model(self) -> None:
         # Load all roads
         extractor = RoadExtractor()
-        # extractor.apply_file(settings.OSM_FILE_PATH, locations=True)
-        # print(f"Number of Roads: {len(extractor.roads)}")
+        extractor.apply_file(settings.OSM_FILE_PATH, locations=True)
+        print(f"Number of Roads: {len(extractor.roads)}")
         fleet_profile = self.fuel_analyzer.analyze_fleet(300)
         fuel_type_coefficients = fleet_profile.median_coefficients
         print(f"Coefficients: {fuel_type_coefficients}")

@@ -4,15 +4,15 @@ from services.optimization import FuelOptimizer
 from services.graphhopper import GraphHopper
 from utils.visualization import visualize_route
 from config.settings import settings
-from services.api.here_api import HereMapAPI, HereTerrainAPI
+from services.api.yandex_opentopo import YandexTrafficAndElevationAPI
+from models.road import RoadExtractor
 
-traffic_api = HereMapAPI()
-traffic_data = traffic_api.get_traffic_data()
-print("Traffic segments:", len(traffic_data.get("results", [])))
-
-# terrain_api = HereTerrainAPI()
-# terrain_tiles = terrain_api.get_sample_tile_urls()
-# print("Sample terrain tile URLs:", terrain_tiles)
+traffic_api = YandexTrafficAndElevationAPI()
+extractor = RoadExtractor()
+extractor.apply_file(settings.OSM_FILE_PATH, locations=True)
+first_road = next(iter(extractor.roads.values()))
+elev_data = traffic_api.get_elevation_for_road(first_road)
+print("Elevation data:", elev_data)
 
 # def main():
 #     # Initialize and run optimization

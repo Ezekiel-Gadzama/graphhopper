@@ -78,36 +78,25 @@ class RoadProfile:
     weather_data: Optional[WeatherData] = None
 
     @classmethod
-    def from_here_api(cls, road: Road, road_traffic_data: Dict, road_terrain_data: Dict, road_weather_data: Dict):
-        """Factory method to create RoadProfile from HERE API response"""
-        # Convert raw API data to proper data classes
-        traffic_data = (
-            TrafficData.from_api_response(road_traffic_data) 
-            if road_traffic_data else None
-        )
-        
-        weather_data = (
-            WeatherData.from_api_response(road_weather_data)
-            if road_weather_data else None
-        )
-
-        # Extract attributes from traffic data (assuming this contains road attributes)
-        attrs = road_traffic_data.get("attributes", {})
-        
+    def from_osm_yandex_combined(cls, 
+            road: Road, 
+            traffic_data: Dict, 
+            elevation_data: Dict, 
+            weather_data: Dict):
         return cls(
             road=road,
-            length=road_terrain_data.get("length", road.length),  # Fallback to road.length
-            surface_type=SurfaceType(attrs.get("surfaceType", "UNKNOWN")),
-            condition=RoadCondition(attrs.get("condition", "UNKNOWN")),
-            elevation=road_terrain_data.get("elevation", 0.0),
-            is_toll_road=attrs.get("isTollRoad", False),
-            is_tunnel=attrs.get("isTunnel", False),
-            is_bridge=attrs.get("isBridge", False),
-            has_speed_bumps=attrs.get("hasSpeedBumps", False),
-            number_of_lanes=attrs.get("numberOfLanes", 1),
-            shoulder_type=ShoulderType(attrs.get("shoulderType", "UNKNOWN")),
-            traffic_data=traffic_data,
-            weather_data=weather_data
+            length=road.length,
+            surface_type=SurfaceType(road.osm_tags.get("surface", "UNKNOWN")),
+            condition=RoadCondition.UNKNOWN,
+            elevation=elevation_data["average_elevation"],
+            is_toll_road=road.osm_tags.get("toll") == "yes",
+            is_tunnel=road.osm_tags.get("tunnel") == "yes",
+            is_bridge=road.osm_tags.get("bridge") == "yes",
+            has_speed_bumps="traffic_calming" in road.osm_tags,
+            number_of_lanes=int(road.osm_tags.get("lanes", 1)),
+            shoulder_type=ShoulderType.UNKNOWN,
+            traffic_data=TrafficData.from_api_response(traffic_data),
+            weather_data=WeatherData.from_api_response(weather_data),
         )
 
 class RoadType(str, Enum):
