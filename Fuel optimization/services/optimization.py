@@ -8,7 +8,7 @@ from services.api.here_api import HereMapAPI, HereTerrainAPI
 from services.api.tomorrow_io import TomorrowIO
 from services.fuel_analysis import FuelAnalyzer
 from models.data_class import FuelPoint, RoadProfile
-from RoadCoefficientProcessor import RoadCoefficientProcessor
+from services.RoadCoefficientProcessor import RoadCoefficientProcessor
 from utils.geo import calculate_distance
 
 class FuelOptimizer:
@@ -77,8 +77,9 @@ class FuelOptimizer:
         grouped_points = self.group_points_by_road_id(points)
         print(f"grouped points: {grouped_points}")
         print(f"Invalid agents: {self.fuel_analyzer.invalid_agents}")
+        print(f"All agents: {self.fuel_analyzer.all_agents}")
 
-############################Just to process few road that are close bye#############################
+############################Just to process few road that are close by#############################
 
         # Define target point
         target_lat = 55.470371
@@ -102,7 +103,6 @@ class FuelOptimizer:
         # Process only the closest 5 roads
         for osm_id, road in closest_roads:
             print(f"Processing OSM ID {osm_id}: type={road.road_type}")
-            # fuel_multiplier = self.process_Unique_road_fuel_weight(grouped_points.get(osm_id, []))
             type_coefficient = fuel_type_coefficients.get(road.road_type, 1.0)
             road_profile = self.create_road_profile(road)
             # Calculate priority multiplier

@@ -1,7 +1,6 @@
 import requests
-from typing import List, Tuple, Dict, Any
+from typing import Dict
 from config.settings import settings
-from models.data_class import WeatherData
 
 class TomorrowIO:
     BASE_URL = "https://api.tomorrow.io/v4/weather/forecast"

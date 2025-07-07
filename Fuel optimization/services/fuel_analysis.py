@@ -1,5 +1,4 @@
 from typing import List, Dict, Any
-from datetime import datetime, timedelta
 from services.api.fuel_database import FuelDatabase
 from models.data_class import (
     RoadType, 
@@ -15,6 +14,7 @@ class FuelAnalyzer:
     def __init__(self):
         self.base_road_type = RoadType.PRIMARY
         self.invalid_agents = set()
+        self.all_agents = set()
 
     def process_fuel_data(self, points: List[FuelPoint]) -> List[FuelPoint]:
         """Process and sort fuel data points by timestamp"""
@@ -150,6 +150,7 @@ class FuelAnalyzer:
             fuel_rate_lph = segment.fuel_consumption / duration_hours if duration_hours > 0 else 0
             
             # Check for invalid conditions
+            self.all_agents.add(str(vehicle['agentid']))
             if (speed_kmh < MIN_SPEED_KMH or 
                 speed_kmh > MAX_SPEED_KMH or
                 fuel_rate_lph > MAX_FUEL_RATE_LPH):

@@ -1,8 +1,6 @@
 import requests
 from typing import Dict
 from config.settings import settings
-from models.road import Road
-from models.data_class import RoadProfile
 
 class HereMapAPI:
     BASE_URL = "https://traffic.ls.hereapi.com/traffic/6.3/flow.json"
@@ -28,7 +26,7 @@ class HereMapAPI:
     def get_traffic_data(self) -> Dict:
         """Get cached or fresh traffic data"""
         if not self.cached_traffic_data:
-            self.cached_traffic_data = self.get_moscow_traffic() # after creating the first road profile (just use cached_traffic_data for others)
+            self.cached_traffic_data = self.get_moscow_traffic()
         return self.cached_traffic_data
         
 class HereTerrainAPI:
@@ -56,22 +54,3 @@ class HereTerrainAPI:
         if not self.cached_terrain_data:
             self.cached_terrain_data = self.get_moscow_terrain()
         return self.cached_terrain_data
-    
-    def create_road_profile(self, road: Road) -> RoadProfile:
-        """Create road profile with terrain data"""
-        terrain_data = self.get_terrain_data()
-        # Extract relevant terrain data for this specific road
-        road_terrain = self._extract_road_terrain(road, terrain_data)
-        return RoadProfile.from_here_api(road_terrain, road)
-
-    def _extract_road_terrain(self, road: Road, terrain_data: Dict) -> Dict:
-        """Helper method to extract terrain data for a specific road"""
-        # Implement logic to match terrain data to your road
-        # This will depend on how your road segments are identified
-        # and how the HERE API returns terrain data
-        return {
-            'length': road.length,  # Example - adjust based on actual data
-            'elevation': terrain_data.get('elevation', {}).get('average', 0.0),
-            'slope': terrain_data.get('slope', {}).get('average', 0.0)
-            # Add other terrain attributes as needed
-        }
