@@ -79,29 +79,29 @@ class FuelOptimizer:
         print(f"Invalid agents: {self.fuel_analyzer.invalid_agents}")
         print(f"All agents: {self.fuel_analyzer.all_agents}")
 
-############################Just to process few road that are close by#############################
+# ############################Just to process few road that are close by#############################
 
-        # Define target point
-        target_lat = 55.470371
-        target_lon = 37.572002
-        # Compute distances from each road to the target point
-        road_distances = []
-        for osm_id, road in extractor.roads.items():
-            if road.coordinates:
-                for lat, lon in road.coordinates:
-                    dist = calculate_distance(target_lat, target_lon, lat, lon)
-                    if dist < 1:
-                        road_distances.append((osm_id, road, dist))
-                        break  # Avoid adding the same road multiple times
+#         # Define target point
+#         target_lat = 55.470371
+#         target_lon = 37.572002
+#         # Compute distances from each road to the target point
+#         road_distances = []
+#         for osm_id, road in extractor.roads.items():
+#             if road.coordinates:
+#                 for lat, lon in road.coordinates:
+#                     dist = calculate_distance(target_lat, target_lon, lat, lon)
+#                     if dist < 40:
+#                         road_distances.append((osm_id, road, dist))
+#                         break  # Avoid adding the same road multiple times
 
-        print(f"Lenght of roads: {len(road_distances)}")
-        # Sort by distance and keep top 5
-        closest_roads = sorted(road_distances, key=lambda x: x[2])[:5]
+#         print(f"Lenght of roads: {len(road_distances)}")
+#         # Sort by distance and keep top 5
+#         closest_roads = sorted(road_distances, key=lambda x: x[2])[:5]
 
-##############################################################################
+# ##############################################################################
 
         # Process only the closest 5 roads
-        for osm_id, road in closest_roads:
+        for osm_id, road in extractor.roads:
             print(f"Processing OSM ID {osm_id}: type={road.road_type}")
             type_coefficient = fuel_type_coefficients.get(road.road_type, 1.0)
             road_profile = self.create_road_profile(road)
