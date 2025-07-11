@@ -49,3 +49,4 @@ package-lock.json
 /secret
 .env
 *.poly
+test.py

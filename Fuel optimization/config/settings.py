@@ -22,10 +22,14 @@ class DatabaseConfig:
 
 class Settings:
     YANDEX_API_KEY = os.getenv("YANDEX_API_KEY")
+    HERE_API_KEY = os.getenv("HERE_API_KEY")
+    HERE_TERRAIN_API_KEY = os.getenv("HERE_TERRAIN_API_KEY")
+    TOMTOM_API_KEY = os.getenv("TOMTOM_API_KEY")
     TOMORROW_API_KEY = os.getenv("TOMORROW_API_KEY")
     OSM_FILE_PATH = str(Path(BASE_DIR).parent / "moscow.osm.pbf")
     CUSTOM_MODEL_PATH = str(Path(BASE_DIR).parent / "custom_model.json")
     GRAPHHOPPER_URL = os.getenv("GRAPHHOPPER_URL", "http://localhost:8989/route")
+    verbose = 1 # 0 - nothing, 1 - logs, 2 - print
     DB_CONFIG = DatabaseConfig()
 
 settings = Settings()
