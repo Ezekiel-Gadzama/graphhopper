@@ -125,51 +125,97 @@ class FuelAnalyzer:
         print(f"consumption coefficients: {coefficients}")
         return coefficients
     
-    def filter_invalid_segments(self, segments: List[RoadSegment], vehicle: Dict[str, Any]) -> List[str]:
+    def filter_invalid_segments(self, segments: List[RoadSegment], vehicle: Dict[str, Any]) -> List[RoadSegment]:
         """
-        Filter out segments with unrealistic speed or fuel consumption rates
-        and return list of agent_ids with invalid data.
-        
-        Returns:
-            List of agent_ids that have invalid segments
+        Enhanced segment filtering with:
+        - L/100km validation for moving vehicles
+        - L/hour validation for idle/slow speeds
+        - Short-distance special handling
         """
-        
-        # Define reasonable ranges (adjust these values based on your specific use case)
-        MIN_SPEED_KMH = 5    # Minimum realistic speed (5 km/h)
-        MAX_SPEED_KMH = 120   # Maximum realistic speed (120 km/h)
-        MAX_FUEL_RATE_LPH = 10  # Maximum fuel consumption rate (liters per hour)
-        
+        vehicle_type = vehicle.get('name', 'car').lower()
+        is_truck = 'truck' in vehicle_type
+
+        thresholds = {
+            'car': {
+                # Speed thresholds (km/h)
+                'min_speed': 5,
+                'max_speed': 120,
+                'idle_speed_threshold': 3,  # Below this = considered idle
+                
+                # Moving consumption (L/100km)
+                'min_fuel_l_100km': 3,    # Theoretical minimum (hybrid downhill)
+                'max_fuel_l_100km': 25,   # Heavy SUV in traffic
+                
+                # Stationary/slow consumption (L/hour)
+                'min_fuel_l_h': 0.3,      # Minimum possible idling
+                'max_fuel_l_h': 1.5,      # Max idling with AC/heavy accessories
+                'max_slow_fuel_l_h': 4    # Max for speeds 3-15 km/h
+            },
+            'truck': {
+                'min_speed': 3,
+                'max_speed': 90,
+                'idle_speed_threshold': 2,
+                'min_fuel_l_100km': 15,
+                'max_fuel_l_100km': 60,
+                'min_fuel_l_h': 0.8,
+                'max_fuel_l_h': 3.5,
+                'max_slow_fuel_l_h': 15
+            }
+        }
+
+        t = thresholds['truck'] if is_truck else thresholds['car']
+        valid_segments = []
+        agent_id = str(vehicle['agentid'])
+        self.all_agents.add(agent_id)
+
         for segment in segments:
-            # Skip very short segments that might have unreliable data
-            # Calculate speed in km/h
-            duration_hours = segment.duration / 3600
+            # Skip invalid segments
+            if segment.duration <= 0 or segment.distance <= 0:
+                self.invalid_agents.add(agent_id)
+                continue
+
+            # Calculate metrics
             distance_km = segment.distance / 1000
-            speed_kmh = distance_km / duration_hours if duration_hours > 0 else 0
+            duration_h = segment.duration / 3600
+            speed_kmh = distance_km / duration_h
+            fuel_l_100km = (segment.fuel_consumption / distance_km) * 100
+            fuel_l_h = segment.fuel_consumption / duration_h
+
+            # Idle/slow speed validation
+            if speed_kmh < t['idle_speed_threshold'] and not (t['min_fuel_l_h'] <= fuel_l_h <= t['max_fuel_l_h']):
+                self.invalid_agents.add(agent_id)
+                continue
+
+            # Slow moving validation (3-15 km/h for cars)
+            if speed_kmh < 15 and fuel_l_h > t['max_slow_fuel_l_h']:
+                self.invalid_agents.add(agent_id)
+                continue
+
+            # Validate speed range
+            if not (t['min_speed'] <= speed_kmh <= t['max_speed']):
+                self.invalid_agents.add(agent_id)
+                continue
             
-            # Calculate fuel consumption rate in liters/hour
-            fuel_rate_lph = segment.fuel_consumption / duration_hours if duration_hours > 0 else 0
-            
-            # Check for invalid conditions
-            self.all_agents.add(str(vehicle['agentid']))
-            if (speed_kmh < MIN_SPEED_KMH or 
-                speed_kmh > MAX_SPEED_KMH or
-                fuel_rate_lph > MAX_FUEL_RATE_LPH):
-                
-                # Get agent_id from the segment's start point
-                self.invalid_agents.add(str(vehicle['agentid']))
-                return True
-                
-        return False
+            # Validate consumption per 100km
+            if not (t['min_fuel_l_100km'] <= fuel_l_100km <= t['max_fuel_l_100km']):
+                self.invalid_agents.add(agent_id)
+                continue
+
+            valid_segments.append(segment)
+
+        return valid_segments
     
     def analyze_vehicle(self, vehicle: Dict[str, Any], db: FuelDatabase, days: int = 7) -> VehicleFuelProfile:
         """Analyze fuel consumption for a single vehicle"""
         points = db.get_fuel_points(vehicle, days)
+        if not points:
+            print(f"No fuel points found for vehicle {vehicle['agentid']}")
+            self.invalid_agents.add(str(vehicle['agentid']))
+
         processed_points = self.process_fuel_data(points)
         segments = self.create_segments(processed_points)
-
-                # Filter invalid segments and print agents with bad data
-        self.filter_invalid_segments(segments,vehicle)
-
+        # Filter invalid segments and print agents with bad data
+        segments = self.filter_invalid_segments(segments, vehicle)
         coefficients = self.calculate_coefficients(segments)
         
         return VehicleFuelProfile(
@@ -184,9 +230,11 @@ class FuelAnalyzer:
         """Analyze fuel consumption for multiple vehicles"""
         db = FuelDatabase(settings.DB_CONFIG)
         vehicles = db.get_vehicles_with_fuel_sensors()
+        vehicles = [v for v in vehicles if v['agentid'] in (900, 917)]
+        print(f"Filtered vehicles: {vehicles}")
         vehicles_profile = []
         all_coefficients = []
-        for vehicle in vehicles: # remove [:10] later
+        for vehicle in vehicles:
             profile = self.analyze_vehicle(vehicle, db, days)
             vehicles_profile.append(profile)
             all_coefficients.append(profile.coefficients)

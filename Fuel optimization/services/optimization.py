@@ -67,12 +67,11 @@ class FuelOptimizer:
         extractor = RoadExtractor()
         extractor.apply_file(settings.OSM_FILE_PATH, locations=True)
         print(f"Number of Roads: {len(extractor.roads)}")
-        fleet_profile = self.fuel_analyzer.analyze_fleet(300)
+        fleet_profile = self.fuel_analyzer.analyze_fleet(700)
         fuel_type_coefficients = fleet_profile.median_coefficients
         print(f"Coefficients: {fuel_type_coefficients}")
         points = fleet_profile.vehicles[0].fuel_points # try for just the first vehicle
         grouped_points = self.group_points_by_road_id(points)
-        print(f"grouped points: {grouped_points}")
         print(f"Invalid agents: {self.fuel_analyzer.invalid_agents}")
         print(f"All agents: {self.fuel_analyzer.all_agents}")
 
@@ -98,7 +97,7 @@ class FuelOptimizer:
 # ##############################################################################
 
         # Process only the closest 5 roads
-        for osm_id, road in extractor.roads:
+        for osm_id, road in list(extractor.roads.items()):
             print(f"Processing OSM ID {osm_id}: type={road.road_type}")
             type_coefficient = fuel_type_coefficients.get(road.road_type, 1.0)
             road_profile = self.create_road_profile(road)
