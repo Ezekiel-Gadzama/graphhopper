@@ -13,24 +13,26 @@ from config.settings import settings
 
 class FuelOptimizer:
     def __init__(self):
-        self.traffic_elev_api = YandexTrafficAndElevationAPI()
+        self.traffic_slope_api = YandexTrafficAndElevationAPI()
         self.tomorrow_io = TomorrowIO()
         self.fuel_analyzer = FuelAnalyzer()
         self.coefficient_processor = RoadCoefficientProcessor()
         self.custom_model = CustomModel()
 
     def create_road_profile(self, road: Road) -> RoadProfile:
-        traffic = self.traffic_elev_api.get_traffic(bbox="37.3,55.4,37.9,56.0")
+        traffic = self.traffic_slope_api.get_traffic(bbox="37.3,55.4,37.9,56.0")
         matching_traffic = self._find_matching_traffic(road, traffic)
 
-        elev_data = self.traffic_elev_api.get_elevation_for_road(road)
+        self.traffic_slope_api.fetch_moscow_slopes(road)
+        slope = self.traffic_slope_api.get_slope_for_road(road)
+        
         weather = self.tomorrow_io.get_weather_data()
         matching_weather = self._find_matching_weather(road, weather)
 
         return RoadProfile.from_osm_yandex_combined(
             road=road,
             traffic_data=matching_traffic or {},
-            elevation_data=elev_data,
+            slope=slope,
             weather_data=matching_weather or {},
         )
     

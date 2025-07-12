@@ -26,7 +26,7 @@ class RoadCoefficientProcessor:
         coefficient *= cls._process_road_condition(road_profile.condition)
         coefficient *= cls._process_traffic(road_profile.traffic_data)
         coefficient *= cls._process_weather(road_profile.weather_data)
-        coefficient *= cls._process_elevation(road_profile.elevation)
+        coefficient *= cls._process_slope(road_profile.slope)
         coefficient *= cls._process_road_features(road_profile)
         
         # Apply any final adjustments
@@ -117,20 +117,34 @@ class RoadCoefficientProcessor:
         return max(0.3, min(1.2, weather_coeff))  # Clamp between 0.3-1.2
     
     @staticmethod
-    def _process_elevation(elevation: float) -> float:
-        """Calculate coefficient based on elevation changes"""
-        # Assuming elevation is in meters
-        elevation_change = abs(elevation)
-        if elevation_change < 50:
-            return 1.0
-        elif elevation_change < 100:
-            return 0.95
-        elif elevation_change < 200:
-            return 0.9
-        elif elevation_change < 300:
-            return 0.85
-        else:
-            return 0.8
+    def _process_slope(slope_percent: float) -> float:
+        """
+        Calculate fuel efficiency coefficient based on road slope.
+        Uphill reduces efficiency, downhill might improve it slightly or keep it neutral.
+        """
+        slope = slope_percent
+
+        if -2 <= slope <= 2:
+            return 1.0  # Flat or very gentle slope
+        elif slope > 2:
+            # Uphill — more fuel
+            if slope < 5:
+                return 0.95
+            elif slope < 8:
+                return 0.9
+            elif slope < 12:
+                return 0.85
+            else:
+                return 0.8
+        elif slope < -2:
+            # Downhill — less fuel
+            if slope > -5:
+                return 1.05
+            elif slope > -8:
+                return 1.1
+            else:
+                return 1.15
+
     
     @staticmethod
     def _process_road_features(road_profile: RoadProfile) -> float:

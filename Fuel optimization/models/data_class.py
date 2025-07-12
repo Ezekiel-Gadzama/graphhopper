@@ -67,7 +67,7 @@ class RoadProfile:
     length: float
     surface_type: SurfaceType
     condition: RoadCondition
-    elevation: float
+    slope: float
     is_toll_road: bool
     is_tunnel: bool
     is_bridge: bool
@@ -81,14 +81,14 @@ class RoadProfile:
     def from_osm_yandex_combined(cls, 
             road: Road, 
             traffic_data: Dict, 
-            elevation_data: Dict, 
+            slope: float, 
             weather_data: Dict):
         return cls(
             road=road,
             length=road.length,
             surface_type=SurfaceType(road.osm_tags.get("surface", "UNKNOWN")),
             condition=RoadCondition.UNKNOWN,
-            elevation=elevation_data["average_elevation"],
+            slope=slope,
             is_toll_road=road.osm_tags.get("toll") == "yes",
             is_tunnel=road.osm_tags.get("tunnel") == "yes",
             is_bridge=road.osm_tags.get("bridge") == "yes",
