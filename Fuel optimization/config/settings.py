@@ -21,7 +21,9 @@ class DatabaseConfig:
     db_password: str = os.getenv("DB_PASSWORD")
 
 class Settings:
+    verbose = 0
     YANDEX_API_KEY = os.getenv("YANDEX_API_KEY")
+    TOMTOM_API_KEY = os.getenv("TOMTOM_API_KEY")
     TOMORROW_API_KEY = os.getenv("TOMORROW_API_KEY")
     OSM_FILE_PATH = str(Path(BASE_DIR).parent / "moscow.osm.pbf")
     CUSTOM_MODEL_PATH = str(Path(BASE_DIR).parent / "custom_model.json")
