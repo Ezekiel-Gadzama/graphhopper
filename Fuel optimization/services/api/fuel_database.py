@@ -1,26 +1,34 @@
-import json
+import json, os, time
 from typing import List, Dict, Tuple, Optional
 from datetime import datetime, timedelta
 from config.database import DatabaseConnection
 from config.settings import DatabaseConfig
-from models.data_class import FuelPoint
+from models.data_class import FuelPoint, RoadType, Road
 from .polyline import Polyline
 import logging
 import requests
 from utils.geo import calculate_distance
+from models.road import RoadExtractor
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 class FuelDatabase:
-    def __init__(self, db_config: DatabaseConfig):
+    def __init__(self, db_config: DatabaseConfig, extractor: RoadExtractor):
         self.db_config = db_config
         self.conn = None
         self.db_wrapper = None
         self.connect()
         self.road_cache = {}  # Format: {(lat, lon): (road_type, road_id)}
-        self.cache_radius = 20  # meters (same as Overpass query radius)
+        self.cache_radius = 50  # meters (same as Overpass query radius)
+        self.road_cache_file = "road_cache.json"
+        self.extractor = extractor
+        # self._load_road_cache()
+        self.updated_key_already = set()
+        self.preloaded_roads: List[Road] = []
+        self._load_preloaded_roads(center_lat=47.546642, center_lon=38.874741, radius=50000)
+
         
 
     def connect(self):
@@ -93,6 +101,51 @@ class FuelDatabase:
             logger.error(f"Location data query failed: {str(e)}")
         return []
     
+    def _load_preloaded_roads(self, center_lat: float, center_lon: float, radius: int):
+        """Preload roads from Overpass API within a given radius"""
+        print("Preloading roads from Overpass API...")
+        query = f"""
+        [out:json];
+        way(around:{radius},{center_lat},{center_lon})[highway];
+        out body geom;
+        """
+        data = self._query_overpass(query)
+        if not data or 'elements' not in data:
+            print("No roads found in Overpass preload.")
+            return
+        
+        for el in data['elements']:
+            if 'geometry' in el and 'tags' in el and 'highway' in el['tags']:
+                coords = [(pt['lat'], pt['lon']) for pt in el['geometry']]
+                road_type = el['tags']['highway']
+                road_id = el['id']
+                self.preloaded_roads.append(Road(osm_id=road_id, coordinates=coords, road_type=road_type, osm_tags=el['tags']))
+        print(f"Loaded {len(self.preloaded_roads)} roads from Overpass.")
+
+
+    def _load_road_cache(self):
+        if os.path.exists(self.road_cache_file):
+            try:
+                with open(self.road_cache_file, "r") as f:
+                    raw_cache = json.load(f)
+                    self.road_cache = {
+                        tuple(map(float, k.split(','))): tuple(v) for k, v in raw_cache.items()
+                    }
+                    print(f"Loaded cached road ID and Type with {len(self.road_cache)} points.")
+            except Exception as e:
+                logger.warning(f"Failed to load road cache: {e}")
+
+    def _save_road_cache(self):
+        try:
+            with open(self.road_cache_file, "w") as f:
+                json.dump({
+                    f"{lat:.6f},{lon:.6f}": [road_id, road_type]
+                    for (lat, lon), (road_id, road_type) in self.road_cache.items()
+                }, f)
+        except Exception as e:
+            logger.error(f"Failed to save road cache: {e}")
+
+    
     def _query_overpass(self, query):
         try:
             response = requests.get("https://overpass-api.de/api/interpreter", params={"data": query}, timeout=30)
@@ -103,56 +156,61 @@ class FuelDatabase:
             return None
 
     def get_road_info(self, lat: float, lon: float) -> Tuple[Optional[int], str]:
-        """
-        Returns (road_id, road_type) for the nearest road to the given coordinates.
-        Uses separate coordinate-based queries for reliability.
-        """
-        # First check cache
-        cached = self._get_cached_road(lat, lon)
-        if cached:
-            print("Using cached for coordinates")
+        key = (round(lat, 6), round(lon, 6))
+        cached = self.road_cache.get(key)
+        
+        if (cached and cached[0] is not None) or key in self.updated_key_already:
             return cached
 
-        # Default values
-        road_id = None
-        road_type = 'unknown'
+        nearest_road = None
+        min_distance = float('inf')
 
-        # First query: Get road type
-        query = f"""[out:json];way(around:20,{lat},{lon})[highway];out ids;"""
-        data = self._query_overpass(query)
-        if data and 'elements' in data and data['elements']:
-            road_id = data['elements'][0]['id']
+        for road in self.preloaded_roads:
+            for point in road.coordinates:
+                dist = calculate_distance(lat, lon, point[0], point[1])
+                if dist < min_distance:
+                    min_distance = dist
+                    nearest_road = road
+        
 
-        # Second query: Get road ID (only if we found a road ID)
-        if road_id:
-            query = f"""[out:json];way(around:20,{lat},{lon})[highway];out tags;"""
-            data = self._query_overpass(query)
-            if data and 'elements' in data and data['elements']:
-                tags = data['elements'][0].get('tags', {})
-                road_type = tags.get('highway', 'unknown')
+        if nearest_road and min_distance <= self.cache_radius:
+            road_id = nearest_road.osm_id
+            road_type = nearest_road.road_type
+            print(f"Found road type: min_distance: {min_distance} and road_id: {road_id} and road_type: {road_type}")
+        else:
+            road_id = None
+            road_type = "unknown"
 
-        self.road_cache[(lat, lon)] = (road_id, road_type)
-        return (road_id, road_type)
+        # Cache cleanup for bad entries
+        if cached and cached[0] is None:
+            print(f"Updating None road_ID at ({lat:.6f},{lon:.6f})")
+            self.updated_key_already.add(key)
+            self.road_cache.pop(key, None)
+
+        self.road_cache[key] = (road_id, road_type)
+        self._save_road_cache()
+
+        return road_id, road_type
+
+
     
     def _get_cached_road(self, lat: float, lon: float) -> Optional[Tuple[str, Optional[int]]]:
         """Check cache for closest road within radius to given coordinates"""
-        closest_distance = float('inf')
-        closest_road = None
-        
-        for (cached_lat, cached_lon), (road_id, road_type) in self.road_cache.items():
-            dist = calculate_distance(lat, lon, cached_lat, cached_lon)
-            if dist <= self.cache_radius and dist < closest_distance:
-                closest_distance = dist
-                closest_road = (road_id, road_type)
-        
-        return closest_road
+        return self.road_cache.get((round(lat, 6), round(lon, 6)))
 
     def get_fuel_points(self, vehicle: dict, days: int = 7) -> List[FuelPoint]:
         """Get fuel points for a specific vehicle"""
+        import time
+        start_time = time.time()
         now = datetime.now()
         start_timestamp = int((now - timedelta(days=days)).timestamp())
         fuel_records = self.get_fuel_data(vehicle['id'], start_timestamp)
         location_data = self.get_vehicle_location_data(vehicle['agentid'], start_timestamp)
+        print(f"length of location: {len(location_data)} and cache: {len(self.road_cache)}")
+        for location in location_data[150000:]:
+            self.get_road_info(location[0], location[1])
+        return []
+        
         points = []
         
         # Convert location data to a more searchable format
@@ -161,7 +219,7 @@ class FuelDatabase:
         print(f"Found {len(fuel_records)} fuel records for vehicle {vehicle['agentid']}")
         print(f"Found {len(location_data)} location records for vehicle {vehicle['agentid']}")
 
-        for index, record in enumerate(fuel_records[:10], start=1):  # start=1 makes it 1-based
+        for index, record in enumerate(fuel_records, start=1):  # start=1 makes it 1-based
             sensor_data = record['sensor_data'].split(';')
             print(f"Processing fuel record #{index}: size of sensor data: {len(sensor_data)}")
             for index, data_point in enumerate(sensor_data, start=1): 
@@ -198,7 +256,6 @@ class FuelDatabase:
                     osm_roadID, road_type = self.get_road_info(location[0], location[1])
                     if osm_roadID == None:
                         continue
-                    print(f"OSM info: roadID: {osm_roadID} with type: {road_type}")
                     points.append(FuelPoint(
                         timestamp=datetime.fromtimestamp(timestamp),
                         fuel_level=fuel_level,
@@ -206,10 +263,11 @@ class FuelDatabase:
                         latitude=location[0],
                         longitude=location[1],
                         gps_speed=location[3],
-                        road_type=road_type,
+                        road_type=RoadType(road_type.upper()),
                         osm_roadID=osm_roadID
                     ))
 
+        print(f"Execution completed in {time.time() - start_time:.2f}s")
         return points
     
     def get_all_agent_ids(self):

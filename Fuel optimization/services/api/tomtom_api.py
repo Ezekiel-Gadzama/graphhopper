@@ -20,7 +20,6 @@ class TomTomAPI:
         self.CACHE_DISTANCE_THRESHOLD = 0.005  # ~5 meters
         self.verbose = settings.verbose
         self._geometry_to_data: Dict[LineString, Dict] = {} # might be not needed
-        print(self.verbose)
 
     def _log(self, *args):
         if self.verbose > 0:
@@ -151,8 +150,8 @@ class TomTomAPI:
         
     def get_or_fetch_traffic_by_road(self, road: Road, zoom=10):
         """Decoration function for getting traffic data via Road class"""
-        return self.get_or_fetch_traffic(road.coordinates[0], road.coordinates[1])
-
+        return self.get_or_fetch_traffic(road.coordinates[0][0], road.coordinates[0][1])
+    
     def clear_cache(self):
         self.segment_cache.clear()
         self.segment_tree = None

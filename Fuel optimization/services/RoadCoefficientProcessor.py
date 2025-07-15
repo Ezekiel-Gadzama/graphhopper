@@ -32,7 +32,7 @@ class RoadCoefficientProcessor:
         # Apply any final adjustments
         coefficient = cls._final_adjustments(coefficient)
         
-        return coefficient
+        return round(coefficient, 6) # Round to 6 decimal places
     
     @staticmethod
     def _process_road_type(road_type: RoadType) -> float:
@@ -48,6 +48,7 @@ class RoadCoefficientProcessor:
             RoadType.SERVICE: 0.6,
             RoadType.UNKNOWN: 0.8
         }
+        
         return road_type_weights.get(road_type, 1.0)
     
     @staticmethod
@@ -65,6 +66,7 @@ class RoadCoefficientProcessor:
             SurfaceType.WOOD: 0.8,
             SurfaceType.UNKNOWN: 0.9
         }
+
         return surface_weights.get(surface_type, 1.0)
     
     @staticmethod
@@ -78,6 +80,7 @@ class RoadCoefficientProcessor:
             RoadCondition.VERY_POOR: 0.6,
             RoadCondition.UNKNOWN: 1.0
         }
+        
         return condition_weights.get(condition, 1.0)
     
     @staticmethod
@@ -93,7 +96,7 @@ class RoadCoefficientProcessor:
         if traffic_data.speed and traffic_data.free_flow_speed:
             speed_ratio = traffic_data.speed / traffic_data.free_flow_speed
             traffic_coeff *= 0.8 + (speed_ratio * 0.4)  # Maps 0-1 to 0.8-1.2
-            
+        
         return max(0.5, min(1.5, traffic_coeff))  # Clamp between 0.5-1.5
     
     @staticmethod
@@ -113,37 +116,55 @@ class RoadCoefficientProcessor:
         # Precipitation adjustment
         if weather_data.precipitation is not None:
             weather_coeff *= 1.0 - (min(weather_data.precipitation, 50) * 0.01)  # 1% reduction per mm up to 50mm
-            
+        
         return max(0.3, min(1.2, weather_coeff))  # Clamp between 0.3-1.2
     
     @staticmethod
-    def _process_slope(slope_percent: float) -> float:
+    def _process_slope(slope_percent_list: Optional[list[float]]) -> float:
         """
-        Calculate fuel efficiency coefficient based on road slope.
-        Uphill reduces efficiency, downhill might improve it slightly or keep it neutral.
+        Calculate an average fuel efficiency coefficient based on road slopes.
+        - Uphill segments (>0%) reduce efficiency.
+        - Downhill segments (<0%) may improve efficiency slightly.
+        - Flat segments (~0%) are neutral.
+        
+        Args:
+            slope_percent_list: List of slope percentages (e.g., [-1.5, 3.2, 0.0, -4.5])
+        
+        Returns:
+            Combined coefficient (e.g., 0.95 for slight uphill bias)
         """
-        slope = slope_percent
-
-        if -2 <= slope <= 2:
-            return 1.0  # Flat or very gentle slope
-        elif slope > 2:
-            # Uphill — more fuel
-            if slope < 5:
-                return 0.95
-            elif slope < 8:
-                return 0.9
-            elif slope < 12:
-                return 0.85
+        if not slope_percent_list:
+            return 1.0  # No slope data → neutral
+        
+        total_coeff = 0.0
+        num_segments = len(slope_percent_list)
+        
+        for slope in slope_percent_list:
+            if -2 <= slope <= 2:
+                # Flat or gentle slope → neutral
+                total_coeff += 1.0
+            elif slope > 2:
+                # Uphill penalty
+                if slope < 5:
+                    total_coeff += 0.95
+                elif slope < 8:
+                    total_coeff += 0.9
+                elif slope < 12:
+                    total_coeff += 0.85
+                else:
+                    total_coeff += 0.8  # Very steep uphill
             else:
-                return 0.8
-        elif slope < -2:
-            # Downhill — less fuel
-            if slope > -5:
-                return 1.05
-            elif slope > -8:
-                return 1.1
-            else:
-                return 1.15
+                # Downhill benefit
+                if slope > -5:
+                    total_coeff += 1.05
+                elif slope > -8:
+                    total_coeff += 1.1
+                else:
+                    total_coeff += 1.15  # Steep downhill
+        
+        # Return average coefficient across all segments
+        avg_coeff = total_coeff / num_segments
+        return avg_coeff 
 
     
     @staticmethod
@@ -174,5 +195,4 @@ class RoadCoefficientProcessor:
     @staticmethod
     def _final_adjustments(coefficient: float) -> float:
         """Apply any final adjustments to the coefficient"""
-        # Round to 2 decimal places
-        return round(coefficient, 2)
+        return coefficient

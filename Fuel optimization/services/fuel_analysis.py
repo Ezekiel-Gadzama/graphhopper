@@ -11,10 +11,11 @@ from utils.geo import calculate_distance
 from config.settings import settings
 
 class FuelAnalyzer:
-    def __init__(self):
+    def __init__(self, road_extractor):
         self.base_road_type = RoadType.PRIMARY
         self.invalid_agents = set()
         self.all_agents = set()
+        self.road_extractor = road_extractor
 
     def process_fuel_data(self, points: List[FuelPoint]) -> List[FuelPoint]:
         """Process and sort fuel data points by timestamp"""
@@ -228,16 +229,16 @@ class FuelAnalyzer:
 
     def analyze_fleet(self, days: int = 7) -> FleetFuelProfile:
         """Analyze fuel consumption for multiple vehicles"""
-        db = FuelDatabase(settings.DB_CONFIG)
+        db = FuelDatabase(settings.DB_CONFIG, self.road_extractor)
         vehicles = db.get_vehicles_with_fuel_sensors()
         vehicles = [v for v in vehicles if v['agentid'] in (900, 917)]
         print(f"Filtered vehicles: {vehicles}")
         vehicles_profile = []
         all_coefficients = []
-        for vehicle in vehicles:
-            profile = self.analyze_vehicle(vehicle, db, days)
-            vehicles_profile.append(profile)
-            all_coefficients.append(profile.coefficients)
+        # for vehicle in vehicles:
+        profile = self.analyze_vehicle(vehicles[0], db, days)
+        vehicles_profile.append(profile)
+        all_coefficients.append(profile.coefficients)
         
         # Calculate average and median coefficients across fleet
         road_types = set().union(*[c.keys() for c in all_coefficients])

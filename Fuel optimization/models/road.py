@@ -1,6 +1,7 @@
 from typing import List, Dict, Tuple, Optional
 import osmium
 from utils.geo import calculate_distance
+from config.settings import settings
 
 class Road:
     def __init__(
@@ -29,6 +30,7 @@ class RoadExtractor(osmium.SimpleHandler):
         super().__init__()
         self.target_osm_ids = set(target_osm_ids) if target_osm_ids else None
         self.roads = {}
+        self.apply_file(settings.OSM_FILE_PATH, locations=True)
 
     def way(self, w) -> None:
         if 'highway' not in w.tags:

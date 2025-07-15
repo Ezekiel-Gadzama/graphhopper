@@ -6,16 +6,46 @@ import json
 from datetime import datetime
 
 class SurfaceType(str, Enum):
+    ACRYLIC = "ACRYLIC"
+    ARTIFICIAL_TURF = "ARTIFICIAL_TURF"
     ASPHALT = "ASPHALT"
-    CONCRETE = "CONCRETE"
-    PAVEMENT_STONES = "PAVEMENT_STONES"
+    BRICKS = "BRICKS"
+    CARPET = "CARPET"
+    CHIPSEAL = "CHIPSEAL"
+    CLAY = "CLAY"
+    COBBLESTONE = "COBBLESTONE"
+    COMPACTED = "COMPACTED"
     COMPACTED_GRAVEL = "COMPACTED_GRAVEL"
+    CONCRETE = "CONCRETE"
+    CONCRETE_LANES = "CONCRETE:LANES"
+    CONCRETE_PLATES = "CONCRETE:PLATES"
     DIRT = "DIRT"
+    EARTH = "EARTH"
+    FINE_GRAVEL = "FINE_GRAVEL"
     GRASS = "GRASS"
+    GRASS_PAVER = "GRASS_PAVER"
+    GRAVEL = "GRAVEL"
+    GROUND = "GROUND"
+    ICE = "ICE"
     METAL = "METAL"
+    METAL_GRID = "METAL_GRID"
+    MUD = "MUD"
+    PAVED = "PAVED"
+    PAVEMENT_STONES = "PAVING_STONES"
+    PAVING_STONES_LANES = "PAVING_STONES:LANES"
+    PEBBLESTONE = "PEBBLESTONE"
+    PLASTIC = "PLASTIC"
+    ROCK = "ROCK"
+    SALT = "SALT"
     SAND = "SAND"
-    WOOD = "WOOD"
+    SETT = "SETT"
+    SNOW = "SNOW"
+    TARTAN = "TARTAN"
+    UNHEWN_COBBLESTONE = "UNHEWN_COBBLESTONE"
+    UNPAVED = "UNPAVED"
     UNKNOWN = "UNKNOWN"
+    WOOD = "WOOD"
+    WOODCHIPS = "WOODCHIPS"
 
 class RoadCondition(str, Enum):
     EXCELLENT = "EXCELLENT"
@@ -49,16 +79,30 @@ class TrafficData:
 @dataclass
 class WeatherData:
     weather_factor: float
-    temperature: Optional[float] = None    # in °C
-    precipitation: Optional[float] = None  # in mm
+    temperature: Optional[float] = None    # °C
+    precipitation: Optional[float] = None  # mm
+    wind_speed: Optional[float] = None     # km/h or m/s
+    wind_direction: Optional[float] = None # degrees
+    humidity: Optional[float] = None       # %
+    visibility: Optional[float] = None     # meters
+    cloud_cover: Optional[float] = None    # %
+    snow_depth: Optional[float] = None     # mm
+    pressure: Optional[float] = None       # hPa
 
     @classmethod
     def from_api_response(cls, api_data: Dict) -> 'WeatherData':
-        """Create WeatherData from raw API response"""
+        """Create WeatherData from raw Tomorrow.io API response"""
         return cls(
-            weather_factor=api_data.get('weatherFactor', 1.0),  # Default to 1.0 (no impact)
+            weather_factor=api_data.get('weatherFactor', 1.0),
             temperature=api_data.get('temperature'),
-            precipitation=api_data.get('precipitation')
+            precipitation=api_data.get('precipitation'),
+            wind_speed=api_data.get('windSpeed'),
+            wind_direction=api_data.get('windDirection'),
+            humidity=api_data.get('humidity'),
+            visibility=api_data.get('visibility'),
+            cloud_cover=api_data.get('cloudCover'),
+            snow_depth=api_data.get('snowDepth'),
+            pressure=api_data.get('pressure')
         )
 
 @dataclass
@@ -78,15 +122,15 @@ class RoadProfile:
     weather_data: Optional[WeatherData] = None
 
     @classmethod
-    def from_osm_yandex_combined(cls, 
+    def from_osm_api_combined(cls, 
             road: Road, 
             traffic_data: Dict, 
-            slope: float, 
+            slope: list, 
             weather_data: Dict):
         return cls(
             road=road,
             length=road.length,
-            surface_type=SurfaceType(road.osm_tags.get("surface", "UNKNOWN")),
+            surface_type=SurfaceType(road.osm_tags.get("surface", "UNKNOWN").upper()),
             condition=RoadCondition.UNKNOWN,
             slope=slope,
             is_toll_road=road.osm_tags.get("toll") == "yes",
@@ -100,15 +144,17 @@ class RoadProfile:
         )
 
 class RoadType(str, Enum):
-    MOTORWAY = "motorway"
-    TRUNK = "trunk"
-    PRIMARY = "primary"
-    SECONDARY = "secondary"
-    TERTIARY = "tertiary"
-    UNCLASSIFIED = "unclassified"
-    RESIDENTIAL = "residential"
-    SERVICE = "service"
-    UNKNOWN = "unknown"
+    MOTORWAY = "MOTORWAY"
+    TRUNK = "TRUNK"
+    PRIMARY = "PRIMARY"
+    SECONDARY = "SECONDARY"
+    TERTIARY = "TERTIARY"
+    UNCLASSIFIED = "UNCLASSIFIED"
+    RESIDENTIAL = "RESIDENTIAL"
+    SERVICE = "SERVICE"
+    TRACK = "TRACK"
+    REST_AREA = "REST_AREA"
+    UNKNOWN = "UNKNOWN"
 
 @dataclass
 class FuelPoint:

@@ -15,6 +15,10 @@
     {
       "if": "osm_id == 498126562",
       "multiply_by": 1.0
+    },
+    {
+      "if": "osm_id == 4870954",
+      "multiply_by": 0.885
     }
   ]
 }

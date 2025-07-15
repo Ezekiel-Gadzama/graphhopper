@@ -4,7 +4,6 @@ from services.optimization import FuelOptimizer
 from services.graphhopper import GraphHopper
 from utils.visualization import visualize_route
 from config.settings import settings
-from services.api.yandex_opentopo import YandexTrafficAndElevationAPI
 from models.road import RoadExtractor
 
 # traffic_api = YandexTrafficAndElevationAPI()
