@@ -21,15 +21,11 @@ class FuelDatabase:
         self.db_wrapper = None
         self.connect()
         self.road_cache = {}  # Format: {(lat, lon): (road_type, road_id)}
-        self.cache_radius = 50  # meters (same as Overpass query radius)
         self.road_cache_file = "road_cache.json"
-        self.extractor = extractor
-        # self._load_road_cache()
-        self.updated_key_already = set()
         self.preloaded_roads: List[Road] = []
         self._load_preloaded_roads(center_lat=47.546642, center_lon=38.874741, radius=50000)
+        self._load_road_cache()
 
-        
 
     def connect(self):
         """Establish and store a reusable database connection"""
@@ -104,6 +100,11 @@ class FuelDatabase:
     def _load_preloaded_roads(self, center_lat: float, center_lon: float, radius: int):
         """Preload roads from Overpass API within a given radius"""
         print("Preloading roads from Overpass API...")
+        
+        # Initialize set if not already
+        if not hasattr(self, 'preloaded_road_ids'):
+            self.preloaded_road_ids = set()
+        
         query = f"""
         [out:json];
         way(around:{radius},{center_lat},{center_lon})[highway];
@@ -113,15 +114,26 @@ class FuelDatabase:
         if not data or 'elements' not in data:
             print("No roads found in Overpass preload.")
             return
-        
+
+        new_road_count = 0
         for el in data['elements']:
             if 'geometry' in el and 'tags' in el and 'highway' in el['tags']:
+                road_id = el['id']
+                if road_id in self.preloaded_road_ids:
+                    continue  # Skip duplicates
+
                 coords = [(pt['lat'], pt['lon']) for pt in el['geometry']]
                 road_type = el['tags']['highway']
-                road_id = el['id']
-                self.preloaded_roads.append(Road(osm_id=road_id, coordinates=coords, road_type=road_type, osm_tags=el['tags']))
-        print(f"Loaded {len(self.preloaded_roads)} roads from Overpass.")
+                self.preloaded_roads.append(Road(
+                    osm_id=road_id,
+                    coordinates=coords,
+                    road_type=road_type,
+                    osm_tags=el['tags']
+                ))
+                self.preloaded_road_ids.add(road_id)
+                new_road_count += 1
 
+        print(f"Loaded {new_road_count} new roads from Overpass (Total: {len(self.preloaded_road_ids)})")
 
     def _load_road_cache(self):
         if os.path.exists(self.road_cache_file):
@@ -155,48 +167,38 @@ class FuelDatabase:
             print(f"Overpass query error: {e}")
             return None
 
-    def get_road_info(self, lat: float, lon: float) -> Tuple[Optional[int], str]:
+    def get_road_info(self, lat: float, lon: float, retry: Optional[bool] = True) -> Tuple[Optional[int], str]:
         key = (round(lat, 6), round(lon, 6))
         cached = self.road_cache.get(key)
         
-        if (cached and cached[0] is not None) or key in self.updated_key_already:
+        if cached:
+            print("Using cache")
             return cached
 
         nearest_road = None
         min_distance = float('inf')
-
         for road in self.preloaded_roads:
             for point in road.coordinates:
-                dist = calculate_distance(lat, lon, point[0], point[1])
+                dist = calculate_distance(lat, lon, point[0], point[1]) #road.coordinates[0][0], road.coordinates[0][1]
                 if dist < min_distance:
                     min_distance = dist
                     nearest_road = road
         
-
-        if nearest_road and min_distance <= self.cache_radius:
+        if nearest_road and min_distance <= 100:
             road_id = nearest_road.osm_id
             road_type = nearest_road.road_type
-            print(f"Found road type: min_distance: {min_distance} and road_id: {road_id} and road_type: {road_type}")
+            print(f"Now minumum distance is {int(min_distance)}m")
         else:
             road_id = None
             road_type = "unknown"
-
-        # Cache cleanup for bad entries
-        if cached and cached[0] is None:
-            print(f"Updating None road_ID at ({lat:.6f},{lon:.6f})")
-            self.updated_key_already.add(key)
-            self.road_cache.pop(key, None)
+            print(f"mini distance is {int(min_distance/1000)}km")
+            if min_distance > 2000 and retry:
+                self._load_preloaded_roads(center_lat=key[0], center_lon=key[1], radius=50000)
+                return self.get_road_info(lat=lat, lon=lon, retry=False)
 
         self.road_cache[key] = (road_id, road_type)
         self._save_road_cache()
-
         return road_id, road_type
-
-
-    
-    def _get_cached_road(self, lat: float, lon: float) -> Optional[Tuple[str, Optional[int]]]:
-        """Check cache for closest road within radius to given coordinates"""
-        return self.road_cache.get((round(lat, 6), round(lon, 6)))
 
     def get_fuel_points(self, vehicle: dict, days: int = 7) -> List[FuelPoint]:
         """Get fuel points for a specific vehicle"""
@@ -207,8 +209,10 @@ class FuelDatabase:
         fuel_records = self.get_fuel_data(vehicle['id'], start_timestamp)
         location_data = self.get_vehicle_location_data(vehicle['agentid'], start_timestamp)
         print(f"length of location: {len(location_data)} and cache: {len(self.road_cache)}")
-        for location in location_data[150000:]:
+        for index, location in enumerate(location_data, start=1):
+            print(f"Processing location index: {index}")
             self.get_road_info(location[0], location[1])
+
         return []
         
         points = []
