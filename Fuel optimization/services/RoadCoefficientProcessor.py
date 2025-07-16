@@ -1,26 +1,27 @@
 from typing import Optional
-from models.data_class import RoadProfile, TrafficData, WeatherData
-from models.data_class import RoadProfile, RoadType, SurfaceType, RoadCondition
+from models.data_class import RoadProfile, TrafficData, WeatherData, RoadType, SurfaceType, RoadCondition
 
 class RoadCoefficientProcessor:
     """
-    Processes road profile features to calculate a combined priority coefficient
-    that can be used as a multiplier in custom routing models.
+    Processes a road's physical, environmental, and structural properties to compute
+    a priority coefficient used in routing or fuel consumption estimation.
+    A higher coefficient implies better conditions (e.g., smooth highway in good weather).
     """
-    
+
     @classmethod
     def process_road_coefficient(cls, road_profile: RoadProfile) -> float:
         """
-        Calculate a combined priority coefficient based on road features.
-        Returns a multiplier value where:
-        - >1.0 means higher priority (better conditions)
-        - 1.0 means neutral
-        - <1.0 means lower priority (worse conditions)
-        """
-        # Initialize with baseline coefficient
-        coefficient = 1.0
+        Main entry point to calculate a combined road coefficient.
         
-        # Process each feature category
+        Args:
+            road_profile (RoadProfile): Road information and conditions.
+
+        Returns:
+            float: A final multiplier indicating road efficiency or priority.
+        """
+        coefficient = 1.0
+
+        # Multiply effects of each road feature
         coefficient *= cls._process_road_type(road_profile.road.road_type)
         coefficient *= cls._process_surface_type(road_profile.surface_type)
         coefficient *= cls._process_road_condition(road_profile.condition)
@@ -28,51 +29,96 @@ class RoadCoefficientProcessor:
         coefficient *= cls._process_weather(road_profile.weather_data)
         coefficient *= cls._process_slope(road_profile.slope)
         coefficient *= cls._process_road_features(road_profile)
-        
-        # Apply any final adjustments
-        coefficient = cls._final_adjustments(coefficient)
-        
-        return round(coefficient, 6) # Round to 6 decimal places
-    
+
+        # Final clamping adjustments
+        return round(cls._final_adjustments(coefficient), 6)
+
     @staticmethod
     def _process_road_type(road_type: RoadType) -> float:
-        """Calculate coefficient based on road type"""
-        road_type_weights = {
+        """
+        Assign coefficient based on road classification.
+        Higher values indicate higher suitability/efficiency for driving.
+        """
+        weights = {
             RoadType.MOTORWAY: 1.3,
+            RoadType.MOTORWAY_LINK: 1.25,
             RoadType.TRUNK: 1.2,
+            RoadType.TRUNK_LINK: 1.15,
             RoadType.PRIMARY: 1.1,
+            RoadType.PRIMARY_LINK: 1.05,
             RoadType.SECONDARY: 1.0,
+            RoadType.SECONDARY_LINK: 0.95,
             RoadType.TERTIARY: 0.9,
+            RoadType.TERTIARY_LINK: 0.85,
             RoadType.UNCLASSIFIED: 0.8,
-            RoadType.RESIDENTIAL: 0.7,
-            RoadType.SERVICE: 0.6,
-            RoadType.UNKNOWN: 0.8
-        }
-        
-        return road_type_weights.get(road_type, 1.0)
-    
-    @staticmethod
-    def _process_surface_type(surface_type: SurfaceType) -> float:
-        """Calculate coefficient based on surface type"""
-        surface_weights = {
-            SurfaceType.ASPHALT: 1.0,
-            SurfaceType.CONCRETE: 0.95,
-            SurfaceType.PAVEMENT_STONES: 0.85,
-            SurfaceType.COMPACTED_GRAVEL: 0.8,
-            SurfaceType.DIRT: 0.7,
-            SurfaceType.GRASS: 0.6,
-            SurfaceType.METAL: 0.9,
-            SurfaceType.SAND: 0.5,
-            SurfaceType.WOOD: 0.8,
-            SurfaceType.UNKNOWN: 0.9
+            RoadType.RESIDENTIAL: 0.8,
+            RoadType.LIVING_STREET: 0.75,
+            RoadType.SERVICE: 0.7,
+            RoadType.SERVICES: 0.7,
+            RoadType.ROAD: 0.9,
+            RoadType.TRACK: 0.6,
+            RoadType.FOOTWAY: 0.5,
+            RoadType.PATH: 0.5,
+            RoadType.CYCLEWAY: 0.55,
+            RoadType.PEDESTRIAN: 0.5,
+            RoadType.BRIDLEWAY: 0.4,
+            RoadType.STEPS: 0.4,
+            RoadType.SIDEWALK: 0.45,
+            RoadType.PLATFORM: 0.4,
+            RoadType.BUS_STOP: 0.4,
+            RoadType.CORRIDOR: 0.3,
+            RoadType.ELEVATOR: 0.2,
+            RoadType.VIA_FERRATA: 0.2,
+            RoadType.STREET_LAMP: 0.2,
+            RoadType.RACEWAY: 0.3,
+            RoadType.REST_AREA: 1.0,
+            RoadType.CONSTRUCTION: 0.3,
+            RoadType.PROPOSED: 0.2,
+            RoadType.ABANDONED: 0.1,
+            RoadType.UNKNOWN: 0.85,
         }
 
-        return surface_weights.get(surface_type, 1.0)
-    
+        return weights.get(road_type, 1.0)
+
+    @staticmethod
+    def _process_surface_type(surface_type: SurfaceType) -> float:
+        """
+        Coefficients based on surface material.
+        Smooth surfaces are better for driving; rough or slow surfaces reduce efficiency.
+        """
+        smooth_surfaces = {
+            SurfaceType.ASPHALT, SurfaceType.CONCRETE, SurfaceType.CONCRETE_LANES,
+            SurfaceType.CONCRETE_PLATES, SurfaceType.PAVED,
+            SurfaceType.METAL, SurfaceType.METAL_GRID
+        }
+
+        rough_surfaces = {
+            SurfaceType.GRAVEL, SurfaceType.DIRT, SurfaceType.SAND, SurfaceType.CLAY,
+            SurfaceType.MUD, SurfaceType.WOODCHIPS, SurfaceType.EARTH
+        }
+
+        slow_surfaces = {
+            SurfaceType.COBBLESTONE, SurfaceType.UNHEWN_COBBLESTONE, SurfaceType.PAVEMENT_STONES,
+            SurfaceType.PAVING_STONES_LANES, SurfaceType.SETT, SurfaceType.ROCK, SurfaceType.RUBBER
+        }
+
+        if surface_type in smooth_surfaces:
+            return 1.0
+        elif surface_type in rough_surfaces:
+            return 0.6
+        elif surface_type in slow_surfaces:
+            return 0.75
+        elif surface_type == SurfaceType.UNKNOWN:
+            return 0.9
+        else:
+            return 0.85  # Default for uncommon surfaces
+
     @staticmethod
     def _process_road_condition(condition: RoadCondition) -> float:
-        """Calculate coefficient based on road condition"""
-        condition_weights = {
+        """
+        Adjust coefficient based on physical condition of the road surface.
+        """
+        weights = {
             RoadCondition.EXCELLENT: 1.2,
             RoadCondition.GOOD: 1.1,
             RoadCondition.FAIR: 1.0,
@@ -80,119 +126,120 @@ class RoadCoefficientProcessor:
             RoadCondition.VERY_POOR: 0.6,
             RoadCondition.UNKNOWN: 1.0
         }
-        
-        return condition_weights.get(condition, 1.0)
-    
+        return weights.get(condition, 1.0)
+
     @staticmethod
     def _process_traffic(traffic_data: Optional[TrafficData]) -> float:
-        """Calculate coefficient based on traffic conditions"""
+        """
+        Adjust coefficient based on real-time traffic conditions.
+
+        Factors considered:
+        - jam_factor (if available or estimated)
+        - speed / free_flow_speed ratio
+        - confidence level
+        - road closures (heavily penalized)
+        """
         if not traffic_data:
             return 1.0
-            
-        # Base traffic coefficient
-        traffic_coeff = 1.0 - (traffic_data.jam_factor * 0.5)  # Jam factor 0-1
-        
-        # Speed ratio adjustment
-        if traffic_data.speed and traffic_data.free_flow_speed:
+
+        coeff = 1.0
+
+        # Heavily penalize closed roads
+        if traffic_data.road_closure:
+            return 0.3
+
+        # Penalize based on jam factor if available
+        if traffic_data.jam_factor is not None:
+            coeff *= (1.0 - traffic_data.jam_factor * 0.5)  # reduces from 1.0 to 0.5
+
+        # Consider speed vs free-flow speed ratio
+        if traffic_data.speed and traffic_data.free_flow_speed and traffic_data.free_flow_speed > 0:
             speed_ratio = traffic_data.speed / traffic_data.free_flow_speed
-            traffic_coeff *= 0.8 + (speed_ratio * 0.4)  # Maps 0-1 to 0.8-1.2
-        
-        return max(0.5, min(1.5, traffic_coeff))  # Clamp between 0.5-1.5
-    
+            coeff *= 0.8 + (speed_ratio * 0.4)  # favors higher ratio, range ~[0.8, 1.2]
+
+        # Penalize low confidence
+        if traffic_data.confidence is not None and traffic_data.confidence < 0.5:
+            coeff *= 0.9  # reduce by 10%
+
+        return max(0.3, min(1.5, coeff))  # Clamp to avoid extreme values
+
     @staticmethod
     def _process_weather(weather_data: Optional[WeatherData]) -> float:
-        """Calculate coefficient based on weather conditions"""
+        """
+        Adjust coefficient based on weather conditions.
+        Cold, wet, or poor visibility lowers the coefficient.
+        """
         if not weather_data:
             return 1.0
-            
-        # Start with weather factor if provided
-        weather_coeff = weather_data.weather_factor
-        
-        # Temperature adjustment (optimal around 20°C)
+
+        coeff = weather_data.weather_factor
+
+        # Penalize temperatures far from 20°C
         if weather_data.temperature is not None:
             temp_diff = abs(20 - weather_data.temperature)
-            weather_coeff *= 1.0 - (temp_diff * 0.01)  # 1% reduction per °C from ideal
-            
-        # Precipitation adjustment
+            coeff *= 1.0 - (temp_diff * 0.01)
+
+        # Reduce for high precipitation
         if weather_data.precipitation is not None:
-            weather_coeff *= 1.0 - (min(weather_data.precipitation, 50) * 0.01)  # 1% reduction per mm up to 50mm
-        
-        return max(0.3, min(1.2, weather_coeff))  # Clamp between 0.3-1.2
-    
+            coeff *= 1.0 - (min(weather_data.precipitation, 50) * 0.01)
+
+        # Additional penalties
+        if weather_data.snow_depth and weather_data.snow_depth > 0:
+            coeff *= 0.9
+        if weather_data.visibility is not None and weather_data.visibility < 500:
+            coeff *= 0.85
+        if weather_data.wind_speed is not None and weather_data.wind_speed > 50:
+            coeff *= 0.95
+
+        return max(0.3, min(1.2, coeff))  # Clamp range
+
     @staticmethod
     def _process_slope(slope_percent_list: Optional[list[float]]) -> float:
         """
-        Calculate an average fuel efficiency coefficient based on road slopes.
-        - Uphill segments (>0%) reduce efficiency.
-        - Downhill segments (<0%) may improve efficiency slightly.
-        - Flat segments (~0%) are neutral.
-        
-        Args:
-            slope_percent_list: List of slope percentages (e.g., [-1.5, 3.2, 0.0, -4.5])
-        
-        Returns:
-            Combined coefficient (e.g., 0.95 for slight uphill bias)
+        Combine slope segments into a coefficient.
+        Uphill reduces efficiency, downhill may increase slightly.
         """
         if not slope_percent_list:
-            return 1.0  # No slope data → neutral
-        
+            return 1.0
+
         total_coeff = 0.0
-        num_segments = len(slope_percent_list)
-        
         for slope in slope_percent_list:
             if -2 <= slope <= 2:
-                # Flat or gentle slope → neutral
-                total_coeff += 1.0
+                total_coeff += 1.0  # Neutral
             elif slope > 2:
-                # Uphill penalty
-                if slope < 5:
-                    total_coeff += 0.95
-                elif slope < 8:
-                    total_coeff += 0.9
-                elif slope < 12:
-                    total_coeff += 0.85
-                else:
-                    total_coeff += 0.8  # Very steep uphill
+                total_coeff += 0.95 if slope < 5 else 0.9 if slope < 8 else 0.85 if slope < 12 else 0.8
             else:
-                # Downhill benefit
-                if slope > -5:
-                    total_coeff += 1.05
-                elif slope > -8:
-                    total_coeff += 1.1
-                else:
-                    total_coeff += 1.15  # Steep downhill
-        
-        # Return average coefficient across all segments
-        avg_coeff = total_coeff / num_segments
-        return avg_coeff 
+                total_coeff += 1.05 if slope > -5 else 1.1 if slope > -8 else 1.15
 
-    
+        return total_coeff / len(slope_percent_list)
+
     @staticmethod
     def _process_road_features(road_profile: RoadProfile) -> float:
-        """Calculate coefficient based on special road features"""
-        feature_coeff = 1.0
-        
+        """
+        Adjust based on features like tolls, tunnels, bridges, bumps, and lanes.
+        """
+        coeff = 1.0
+
         if road_profile.is_toll_road:
-            feature_coeff *= 1.1  # Toll roads often better maintained
-            
+            coeff *= 1.1  # Often better maintained
         if road_profile.is_tunnel:
-            feature_coeff *= 0.9  # Slightly penalize tunnels
-            
+            coeff *= 0.9
         if road_profile.is_bridge:
-            feature_coeff *= 0.95  # Slightly penalize bridges
-            
+            coeff *= 0.95
         if road_profile.has_speed_bumps:
-            feature_coeff *= 0.85  # Speed bumps reduce efficiency
-            
-        # Adjust for number of lanes
+            coeff *= 0.85
+
+        # Lane-based adjustment
         if road_profile.number_of_lanes >= 4:
-            feature_coeff *= 1.1
+            coeff *= 1.1
         elif road_profile.number_of_lanes <= 1:
-            feature_coeff *= 0.9
-            
-        return feature_coeff
-    
+            coeff *= 0.9
+
+        return coeff
+
     @staticmethod
     def _final_adjustments(coefficient: float) -> float:
-        """Apply any final adjustments to the coefficient"""
-        return coefficient
+        """
+        Final clamping to ensure reasonable bounds.
+        """
+        return max(0.1, min(2.0, coefficient))  # Clamp result to [0.1, 2.0]

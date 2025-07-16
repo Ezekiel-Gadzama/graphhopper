@@ -44,11 +44,9 @@ class ElevationAPI:
         """Save elevation data to JSON file."""
         with open(self.elevation_file, "w") as f:
             json.dump(self.elevation_map, f, indent=2)
-        print(f"Saved elevation data to {self.elevation_file}")
 
     def fetch_moscow_slopes(self, extractor, batch_size=100, max_workers=1, delay_seconds=1.2):
         """Fetch elevation and compute slopes for roads, only downloading if not cached."""
-        start_time = time.time()
 
         coords = list({
             (lat, lon)
@@ -58,7 +56,6 @@ class ElevationAPI:
         })
 
         if coords:
-            print(f"Fetching elevation for {len(coords)} missing coordinates...")
             session = FuturesSession(max_workers=max_workers)
             futures = []
 
@@ -104,8 +101,6 @@ class ElevationAPI:
                     slopes.append(slope_percent)
 
             self.slope_cache[road.osm_id] = slopes
-
-        print(f"Execution completed in {time.time() - start_time:.2f}s")
 
             
     def get_slope_for_road(self, road: Road) -> List[float]:

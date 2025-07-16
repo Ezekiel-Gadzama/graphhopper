@@ -13,8 +13,6 @@ from config.settings import settings
 class FuelAnalyzer:
     def __init__(self, road_extractor):
         self.base_road_type = RoadType.PRIMARY
-        self.invalid_agents = set()
-        self.all_agents = set()
         self.road_extractor = road_extractor
 
     def process_fuel_data(self, points: List[FuelPoint]) -> List[FuelPoint]:
@@ -37,12 +35,10 @@ class FuelAnalyzer:
             
         segments = []
         current_segment = [points[0]]
-        print(f"starting point Road type: {points[0].road_type} with timestamp: {points[0].timestamp}")
         for point in points[1:]:
             if not point.road_type:
                 continue
             # Continue segment if same road type and time difference < threshold
-            print(f"Road type: {point.road_type} with timestamp: {point.timestamp}")
             distance_ok = not (calculate_distance(point.latitude, point.longitude,
                                 current_segment[-1].latitude,
                                 current_segment[-1].longitude) > 0.01
@@ -117,13 +113,10 @@ class FuelAnalyzer:
         
         # Calculate coefficients relative to primary roads
         base_consumption = consumption.get(self.base_road_type, 1.0)
-        print(f"consumption is : {consumption}")
         coefficients = {
             road_type: base_consumption / cons if cons > 0 else 1.0
             for road_type, cons in consumption.items()
         }
-        
-        print(f"consumption coefficients: {coefficients}")
         return coefficients
     
     def filter_invalid_segments(self, segments: List[RoadSegment], vehicle: Dict[str, Any]) -> List[RoadSegment]:
@@ -166,13 +159,10 @@ class FuelAnalyzer:
 
         t = thresholds['truck'] if is_truck else thresholds['car']
         valid_segments = []
-        agent_id = str(vehicle['agentid'])
-        self.all_agents.add(agent_id)
 
         for segment in segments:
             # Skip invalid segments
             if segment.duration <= 0 or segment.distance <= 0:
-                self.invalid_agents.add(agent_id)
                 continue
 
             # Calculate metrics
@@ -184,22 +174,18 @@ class FuelAnalyzer:
 
             # Idle/slow speed validation
             if speed_kmh < t['idle_speed_threshold'] and not (t['min_fuel_l_h'] <= fuel_l_h <= t['max_fuel_l_h']):
-                self.invalid_agents.add(agent_id)
                 continue
 
             # Slow moving validation (3-15 km/h for cars)
             if speed_kmh < 15 and fuel_l_h > t['max_slow_fuel_l_h']:
-                self.invalid_agents.add(agent_id)
                 continue
 
             # Validate speed range
             if not (t['min_speed'] <= speed_kmh <= t['max_speed']):
-                self.invalid_agents.add(agent_id)
                 continue
             
             # Validate consumption per 100km
             if not (t['min_fuel_l_100km'] <= fuel_l_100km <= t['max_fuel_l_100km']):
-                self.invalid_agents.add(agent_id)
                 continue
 
             valid_segments.append(segment)
@@ -209,13 +195,9 @@ class FuelAnalyzer:
     def analyze_vehicle(self, vehicle: Dict[str, Any], db: FuelDatabase, days: int = 7) -> VehicleFuelProfile:
         """Analyze fuel consumption for a single vehicle"""
         points = db.get_fuel_points(vehicle, days)
-        if not points:
-            print(f"No fuel points found for vehicle {vehicle['agentid']}")
-            self.invalid_agents.add(str(vehicle['agentid']))
-
         processed_points = self.process_fuel_data(points)
         segments = self.create_segments(processed_points)
-        # Filter invalid segments and print agents with bad data
+        # Filter invalid segments
         segments = self.filter_invalid_segments(segments, vehicle)
         coefficients = self.calculate_coefficients(segments)
         
@@ -232,13 +214,12 @@ class FuelAnalyzer:
         db = FuelDatabase(settings.DB_CONFIG, self.road_extractor)
         vehicles = db.get_vehicles_with_fuel_sensors()
         vehicles = [v for v in vehicles if v['agentid'] in (900, 917)]
-        print(f"Filtered vehicles: {vehicles}")
         vehicles_profile = []
         all_coefficients = []
-        # for vehicle in vehicles:
-        profile = self.analyze_vehicle(vehicles[0], db, days)
-        vehicles_profile.append(profile)
-        all_coefficients.append(profile.coefficients)
+        for vehicle in vehicles:
+            profile = self.analyze_vehicle(vehicle, db, days)
+            vehicles_profile.append(profile)
+            all_coefficients.append(profile.coefficients)
         
         # Calculate average and median coefficients across fleet
         road_types = set().union(*[c.keys() for c in all_coefficients])

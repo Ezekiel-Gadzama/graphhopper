@@ -150,7 +150,7 @@ class TomTomAPI:
         
     def get_or_fetch_traffic_by_road(self, road: Road, zoom=10):
         """Decoration function for getting traffic data via Road class"""
-        return self.get_or_fetch_traffic(road.coordinates[0][0], road.coordinates[0][1])
+        return self.get_or_fetch_traffic(road.coordinates[0][0], road.coordinates[0][1], zoom)
     
     def clear_cache(self):
         self.segment_cache.clear()

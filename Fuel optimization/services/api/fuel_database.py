@@ -9,6 +9,8 @@ import logging
 import requests
 from utils.geo import calculate_distance
 from models.road import RoadExtractor
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -20,11 +22,15 @@ class FuelDatabase:
         self.conn = None
         self.db_wrapper = None
         self.connect()
+        self.extractor = extractor
         self.road_cache = {}  # Format: {(lat, lon): (road_type, road_id)}
         self.road_cache_file = "road_cache.json"
-        self.preloaded_roads: List[Road] = []
-        self._load_preloaded_roads(center_lat=47.546642, center_lon=38.874741, radius=50000)
         self._load_road_cache()
+        self.lock = threading.Lock()
+        self._preload_lock = threading.Lock()
+        self.preloaded_roads: List[Road] = []
+        self._preload_in_progress = False
+        self._load_preloaded_roads(center_lat=47.546642, center_lon=38.874741, radius=30000)
 
 
     def connect(self):
@@ -97,7 +103,7 @@ class FuelDatabase:
             logger.error(f"Location data query failed: {str(e)}")
         return []
     
-    def _load_preloaded_roads(self, center_lat: float, center_lon: float, radius: int):
+    def _load_preloaded_roads(self, center_lat: float, center_lon: float, radius: int = 30000):
         """Preload roads from Overpass API within a given radius"""
         print("Preloading roads from Overpass API...")
         
@@ -160,26 +166,95 @@ class FuelDatabase:
     
     def _query_overpass(self, query):
         try:
-            response = requests.get("https://overpass-api.de/api/interpreter", params={"data": query}, timeout=30)
+            time.sleep(3)
+            response = requests.get("https://overpass-api.de/api/interpreter", params={"data": query}, timeout=300)
             response.raise_for_status()
             return response.json()
         except Exception as e:
             print(f"Overpass query error: {e}")
             return None
-
-    def get_road_info(self, lat: float, lon: float, retry: Optional[bool] = True) -> Tuple[Optional[int], str]:
-        key = (round(lat, 6), round(lon, 6))
-        cached = self.road_cache.get(key)
         
-        if cached:
-            print("Using cache")
-            return cached
+    def preload_road_info_multithreaded(self, location_data: List[Tuple[float, float, int]], max_workers: int = 24):
+        def worker(index, location):
+            lat, lon = location[0], location[1]
+            print(f"Thread-{index} Processing location index: {index}")
+            result = self.get_road_info_threadsafe(lat, lon)
+            return result
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(worker, index, location)
+                for index, location in enumerate(location_data, start=1)
+            ]
+
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    print(f"Thread error: {e}")
+
+
+    def get_road_info_threadsafe(self, lat: float, lon: float, retry: Optional[bool] = True) -> Tuple[Optional[int], str]:
+        key = (round(lat, 6), round(lon, 6))
+
+        with self.lock:
+            cached = self.road_cache.get(key)
+            if cached:
+                return cached
 
         nearest_road = None
         min_distance = float('inf')
         for road in self.preloaded_roads:
             for point in road.coordinates:
-                dist = calculate_distance(lat, lon, point[0], point[1]) #road.coordinates[0][0], road.coordinates[0][1]
+                dist = calculate_distance(lat, lon, point[0], point[1])
+                if dist < min_distance:
+                    min_distance = dist
+                    nearest_road = road
+
+        if nearest_road and min_distance <= 100:
+            road_id = nearest_road.osm_id
+            road_type = nearest_road.road_type
+        else:
+            road_id = None
+            road_type = "unknown"
+            if min_distance > 2000 and retry:
+                with self._preload_lock:
+                    time.sleep(0.5)
+                if not self._preload_in_progress:
+                    self._preload_in_progress = True
+                    try:
+                        self._load_preloaded_roads(center_lat=key[0], center_lon=key[1])
+                    finally:
+                        self._preload_in_progress = False
+                else:
+                    print(f"Another thread is already preloading. Skipping preload for ({lat:.6f},{lon:.6f})")
+                    retry = not retry
+                    while self._preload_in_progress:
+                        time.sleep(0.2)
+
+                # Retry after preload or waiting
+                return self.get_road_info_threadsafe(lat=lat, lon=lon, retry=not retry)
+
+
+        with self.lock:
+            self.road_cache[key] = (road_id, road_type)
+            self._save_road_cache()
+            
+        return road_id, road_type
+    
+    def get_road_info(self, lat: float, lon: float) -> Tuple[Optional[int], str]:
+        key = (round(lat, 6), round(lon, 6))
+        cached = self.road_cache.get(key)
+        
+        if cached:
+            return cached
+
+        nearest_road = None
+        min_distance = float('inf')
+
+        for road in self.extractor.roads.values():
+            for point in road.coordinates:
+                dist = calculate_distance(lat, lon, point[0], point[1])
                 if dist < min_distance:
                     min_distance = dist
                     nearest_road = road
@@ -187,18 +262,14 @@ class FuelDatabase:
         if nearest_road and min_distance <= 100:
             road_id = nearest_road.osm_id
             road_type = nearest_road.road_type
-            print(f"Now minumum distance is {int(min_distance)}m")
+            print(f"Found road type: min_distance: {min_distance} and road_id: {road_id} and road_type: {road_type} for key: {key}")
         else:
             road_id = None
             road_type = "unknown"
-            print(f"mini distance is {int(min_distance/1000)}km")
-            if min_distance > 2000 and retry:
-                self._load_preloaded_roads(center_lat=key[0], center_lon=key[1], radius=50000)
-                return self.get_road_info(lat=lat, lon=lon, retry=False)
 
         self.road_cache[key] = (road_id, road_type)
-        self._save_road_cache()
         return road_id, road_type
+
 
     def get_fuel_points(self, vehicle: dict, days: int = 7) -> List[FuelPoint]:
         """Get fuel points for a specific vehicle"""
@@ -209,11 +280,13 @@ class FuelDatabase:
         fuel_records = self.get_fuel_data(vehicle['id'], start_timestamp)
         location_data = self.get_vehicle_location_data(vehicle['agentid'], start_timestamp)
         print(f"length of location: {len(location_data)} and cache: {len(self.road_cache)}")
-        for index, location in enumerate(location_data, start=1):
-            print(f"Processing location index: {index}")
-            self.get_road_info(location[0], location[1])
 
-        return []
+        # self.preload_road_info_multithreaded(location_data)
+        # # for index, location in enumerate(location_data, start=1):
+        # #     print(f"Processing location index: {index}")
+        # #     self.get_road_info(location[0], location[1])
+
+        # return []
         
         points = []
         
@@ -257,7 +330,7 @@ class FuelDatabase:
                         continue
 
                 if location and speed > 0:
-                    osm_roadID, road_type = self.get_road_info(location[0], location[1])
+                    osm_roadID, road_type = self.get_road_info_threadsafe(location[0], location[1])
                     if osm_roadID == None:
                         continue
                     points.append(FuelPoint(

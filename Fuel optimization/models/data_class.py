@@ -1,8 +1,7 @@
 from dataclasses import dataclass
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
 from enum import Enum
-from models.road import Road
-import json
+from models.road import Road, RoadType
 from datetime import datetime
 
 class SurfaceType(str, Enum):
@@ -46,6 +45,7 @@ class SurfaceType(str, Enum):
     UNKNOWN = "UNKNOWN"
     WOOD = "WOOD"
     WOODCHIPS = "WOODCHIPS"
+    RUBBER = "RUBBER"
 
 class RoadCondition(str, Enum):
     EXCELLENT = "EXCELLENT"
@@ -63,17 +63,40 @@ class ShoulderType(str, Enum):
 
 @dataclass
 class TrafficData:
-    jam_factor: float
-    speed: Optional[float] = None          # in km/h
-    free_flow_speed: Optional[float] = None  # in km/h
+    speed: Optional[float] = None                # in km/h
+    free_flow_speed: Optional[float] = None      # in km/h
+    current_travel_time: Optional[float] = None  # in seconds
+    free_flow_travel_time: Optional[float] = None
+    confidence: Optional[float] = None           # 0.0 to 1.0
+    road_closure: Optional[bool] = False
+    segment_coordinates: Optional[List[Tuple[float, float]]] = None
+    received: Optional[float] = None             # timestamp
+    jam_factor: Optional[float] = None           # computed field
 
     @classmethod
     def from_api_response(cls, api_data: Dict) -> 'TrafficData':
-        """Create TrafficData from raw API response"""
+        """Create TrafficData from TomTom traffic API response"""
+        speed = api_data.get('currentSpeed')
+        free_flow_speed = api_data.get('freeFlowSpeed')
+
+        # Estimate jam factor if both speeds are present
+        jam_factor = None
+        if speed and free_flow_speed and free_flow_speed > 0:
+            jam_factor = max(0.0, min(1.0, 1 - (speed / free_flow_speed)))
+
+        coords_raw = api_data.get('segmentCoordinates', [])
+        coords = [(pt['latitude'], pt['longitude']) for pt in coords_raw] if coords_raw else None
+
         return cls(
-            jam_factor=api_data.get('jamFactor', 0.0),
-            speed=api_data.get('speed'),
-            free_flow_speed=api_data.get('freeFlowSpeed')
+            speed=speed,
+            free_flow_speed=free_flow_speed,
+            current_travel_time=api_data.get('currentTravelTime'),
+            free_flow_travel_time=api_data.get('freeFlowTravelTime'),
+            confidence=api_data.get('confidence'),
+            road_closure=api_data.get('roadClosure'),
+            segment_coordinates=coords,
+            received=api_data.get('received'),
+            jam_factor=jam_factor
         )
 
 @dataclass
@@ -142,19 +165,6 @@ class RoadProfile:
             traffic_data=TrafficData.from_api_response(traffic_data),
             weather_data=WeatherData.from_api_response(weather_data),
         )
-
-class RoadType(str, Enum):
-    MOTORWAY = "MOTORWAY"
-    TRUNK = "TRUNK"
-    PRIMARY = "PRIMARY"
-    SECONDARY = "SECONDARY"
-    TERTIARY = "TERTIARY"
-    UNCLASSIFIED = "UNCLASSIFIED"
-    RESIDENTIAL = "RESIDENTIAL"
-    SERVICE = "SERVICE"
-    TRACK = "TRACK"
-    REST_AREA = "REST_AREA"
-    UNKNOWN = "UNKNOWN"
 
 @dataclass
 class FuelPoint:
