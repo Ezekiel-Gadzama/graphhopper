@@ -114,18 +114,20 @@ class WeatherData:
 
     @classmethod
     def from_api_response(cls, api_data: Dict) -> 'WeatherData':
-        """Create WeatherData from raw Tomorrow.io API response"""
+        values = api_data.get("data", {}).get("values", {})
+
         return cls(
-            weather_factor=api_data.get('weatherFactor', 1.0),
-            temperature=api_data.get('temperature'),
-            precipitation=api_data.get('precipitation'),
-            wind_speed=api_data.get('windSpeed'),
-            wind_direction=api_data.get('windDirection'),
-            humidity=api_data.get('humidity'),
-            visibility=api_data.get('visibility'),
-            cloud_cover=api_data.get('cloudCover'),
-            snow_depth=api_data.get('snowDepth'),
-            pressure=api_data.get('pressure')
+            weather_factor=1.0,  # scoring logic can go here
+            temperature=values.get("temperature"),
+            precipitation=values.get("rainIntensity", 0) + values.get("sleetIntensity", 0) + values.get("snowIntensity", 0),
+            wind_speed=values.get("windSpeed"),
+            wind_direction=values.get("windDirection"),
+            humidity=values.get("humidity"),
+            visibility=values.get("visibility") * 1000 if values.get("visibility") is not None else None,  # km -> meters
+            cloud_cover=values.get("cloudCover"),
+            snow_depth=None,  # Not present in realtime response, maybe from forecast
+            pressure=values.get("pressureSurfaceLevel")
+            # uvIndex and windDirection might be useful too
         )
 
 @dataclass
