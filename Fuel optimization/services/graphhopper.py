@@ -1,4 +1,4 @@
-import requests
+import requests, json
 from typing import List, Dict, Any
 from config.settings import settings
 
@@ -26,8 +26,30 @@ class GraphHopper:
 
         try:
             response = requests.post(self.base_url, json=params)
-            response.raise_for_status()
+            
+            # Print full response details
+            print("\n=== Full Response ===")
+            print(f"Status Code: {response.status_code}")
+            print("Headers:")
+            for header, value in response.headers.items():
+                print(f"  {header}: {value}")
+            
+            print("\nBody:")
+            try:
+                # Pretty-print JSON if possible
+                print(json.dumps(response.json(), indent=2))
+            except ValueError:
+                # Fallback to raw text if not JSON
+                print(response.text)
+            
+            response.raise_for_status()  # Raise HTTP errors
             return response.json()
-        except Exception as e:
-            print(f"Error requesting route: {e}")
+            
+        except requests.exceptions.RequestException as e:
+            print(f"\n=== Request Failed ===")
+            if hasattr(e, 'response') and e.response:
+                print(f"Status Code: {e.response.status_code}")
+                print("Error Body:")
+                print(e.response.text)
+            print(f"Error: {str(e)}")
             return None

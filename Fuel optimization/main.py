@@ -89,9 +89,6 @@ def main():
     # Load custom model
     with open("custom_model.json") as f:
         custom_model = json.load(f)
-
-    if "speed" not in custom_model:
-        custom_model["speed"] = [{"if": "true", "limit_to": 100}]
     
     results = {
         "with_differences": [],

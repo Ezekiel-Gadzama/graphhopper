@@ -52,7 +52,11 @@ server:
     - type: http
       port: 8989
       bind_host: localhost
-      max_request_header_size: 50k
+      max_request_header_size: 32MB  # Use units (KB, MB, GB)
+      max_response_header_size: 32MB
+      output_buffer_size: 64KB       # Critical for large responses
+      buffer_pool_increment: 16KB    # Must be ≤ 64KB and divisor of others
+      max_buffer_pool_size: 64KB
   admin_connectors:
     - type: http
       port: 8990
