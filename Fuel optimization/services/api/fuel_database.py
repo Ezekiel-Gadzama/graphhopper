@@ -1,16 +1,13 @@
-import json, os, time
 from typing import List, Dict, Tuple, Optional
 from datetime import datetime, timedelta
 from config.database import DatabaseConnection
 from config.settings import DatabaseConfig
-from models.data_class import FuelPoint, RoadType, Road
+from models.data_class import FuelPoint, RoadProfile, Road
 from .polyline import Polyline
 import logging
-import requests
 from utils.geo import calculate_distance
 from models.road import RoadExtractor
-import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from scipy.spatial import KDTree
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -23,15 +20,7 @@ class FuelDatabase:
         self.db_wrapper = None
         self.connect()
         self.extractor = extractor
-        self.road_cache = {}  # Format: {(lat, lon): (road_type, road_id)}
-        self.road_cache_file = "road_cache.json"
-        self._load_road_cache()
-        self.lock = threading.Lock()
-        self._preload_lock = threading.Lock()
-        self.preloaded_roads: List[Road] = []
-        self._preload_in_progress = False
-        self._load_preloaded_roads(center_lat=47.546642, center_lon=38.874741, radius=30000)
-
+        self._build_kdtree()
 
     def connect(self):
         """Establish and store a reusable database connection"""
@@ -39,13 +28,24 @@ class FuelDatabase:
             self.db_wrapper = DatabaseConnection(self.db_config)
             self.conn = self.db_wrapper.connection
 
-
     def close(self):
         """Close the persistent connection"""
         if self.db_wrapper:
             self.db_wrapper.close()
             self.conn = None
 
+    def _build_kdtree(self):
+        self.coord_to_road = {}
+        all_coords = []
+        for road in self.extractor.roads.values():
+            for coord in road.coordinates:
+                all_coords.append(coord)
+                self.coord_to_road[coord] = road
+        if all_coords:
+            self.kdtree = KDTree(all_coords)
+            self.kdtree_points = all_coords  # needed to reverse the index
+        else:
+            self.kdtree = None
 
     def get_vehicles_with_fuel_sensors(self) -> List[Dict]:
         query = """
@@ -102,203 +102,33 @@ class FuelDatabase:
         except Exception as e:
             logger.error(f"Location data query failed: {str(e)}")
         return []
-    
-    def _load_preloaded_roads(self, center_lat: float, center_lon: float, radius: int = 30000):
-        """Preload roads from Overpass API within a given radius"""
-        print("Preloading roads from Overpass API...")
-        
-        # Initialize set if not already
-        if not hasattr(self, 'preloaded_road_ids'):
-            self.preloaded_road_ids = set()
-        
-        query = f"""
-        [out:json];
-        way(around:{radius},{center_lat},{center_lon})[highway];
-        out body geom;
-        """
-        data = self._query_overpass(query)
-        if not data or 'elements' not in data:
-            print("No roads found in Overpass preload.")
-            return
 
-        new_road_count = 0
-        for el in data['elements']:
-            if 'geometry' in el and 'tags' in el and 'highway' in el['tags']:
-                road_id = el['id']
-                if road_id in self.preloaded_road_ids:
-                    continue  # Skip duplicates
+    def get_road(self, lat: float, lon: float) -> Optional[Road]:
+        if not self.kdtree:
+            return None  # Can't proceed if KDTree wasn't built
 
-                coords = [(pt['lat'], pt['lon']) for pt in el['geometry']]
-                road_type = el['tags']['highway']
-                self.preloaded_roads.append(Road(
-                    osm_id=road_id,
-                    coordinates=coords,
-                    road_type=road_type,
-                    osm_tags=el['tags']
-                ))
-                self.preloaded_road_ids.add(road_id)
-                new_road_count += 1
+        dist, index = self.kdtree.query((lat, lon))
+        nearest_coord = self.kdtree_points[index]
+        nearest_road = self.coord_to_road[nearest_coord]
 
-        print(f"Loaded {new_road_count} new roads from Overpass (Total: {len(self.preloaded_road_ids)})")
-
-    def _load_road_cache(self):
-        if os.path.exists(self.road_cache_file):
-            try:
-                with open(self.road_cache_file, "r") as f:
-                    raw_cache = json.load(f)
-                    self.road_cache = {
-                        tuple(map(float, k.split(','))): tuple(v) for k, v in raw_cache.items()
-                    }
-                    print(f"Loaded cached road ID and Type with {len(self.road_cache)} points.")
-            except Exception as e:
-                logger.warning(f"Failed to load road cache: {e}")
-
-    def _save_road_cache(self):
-        try:
-            with open(self.road_cache_file, "w") as f:
-                json.dump({
-                    f"{lat:.6f},{lon:.6f}": [road_id, road_type]
-                    for (lat, lon), (road_id, road_type) in self.road_cache.items()
-                }, f)
-        except Exception as e:
-            logger.error(f"Failed to save road cache: {e}")
-
-    
-    def _query_overpass(self, query):
-        try:
-            time.sleep(3)
-            response = requests.get("https://overpass-api.de/api/interpreter", params={"data": query}, timeout=300)
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            print(f"Overpass query error: {e}")
+        min_distance = calculate_distance(lat, lon, nearest_coord[0], nearest_coord[1])
+        if min_distance <= 300:
+            return nearest_road
+        else:
             return None
-        
-    def preload_road_info_multithreaded(self, location_data: List[Tuple[float, float, int]], max_workers: int = 24):
-        def worker(index, location):
-            lat, lon = location[0], location[1]
-            print(f"Thread-{index} Processing location index: {index}")
-            result = self.get_road_info_threadsafe(lat, lon)
-            return result
-
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [
-                executor.submit(worker, index, location)
-                for index, location in enumerate(location_data, start=1)
-            ]
-
-            for future in as_completed(futures):
-                try:
-                    future.result()
-                except Exception as e:
-                    print(f"Thread error: {e}")
-
-
-    def get_road_info_threadsafe(self, lat: float, lon: float, retry: Optional[bool] = True) -> Tuple[Optional[int], str]:
-        key = (round(lat, 6), round(lon, 6))
-
-        with self.lock:
-            cached = self.road_cache.get(key)
-            if cached:
-                return cached
-
-        nearest_road = None
-        min_distance = float('inf')
-        for road in self.preloaded_roads:
-            for point in road.coordinates:
-                dist = calculate_distance(lat, lon, point[0], point[1])
-                if dist < min_distance:
-                    min_distance = dist
-                    nearest_road = road
-
-        if nearest_road and min_distance <= 100:
-            road_id = nearest_road.osm_id
-            road_type = nearest_road.road_type
-        else:
-            road_id = None
-            road_type = "unknown"
-            if min_distance > 2000 and retry:
-                with self._preload_lock:
-                    time.sleep(0.5)
-                if not self._preload_in_progress:
-                    self._preload_in_progress = True
-                    try:
-                        self._load_preloaded_roads(center_lat=key[0], center_lon=key[1])
-                    finally:
-                        self._preload_in_progress = False
-                else:
-                    print(f"Another thread is already preloading. Skipping preload for ({lat:.6f},{lon:.6f})")
-                    retry = not retry
-                    while self._preload_in_progress:
-                        time.sleep(0.2)
-
-                # Retry after preload or waiting
-                return self.get_road_info_threadsafe(lat=lat, lon=lon, retry=not retry)
-
-
-        with self.lock:
-            self.road_cache[key] = (road_id, road_type)
-            self._save_road_cache()
-            
-        return road_id, road_type
-    
-    def get_road_info(self, lat: float, lon: float) -> Tuple[Optional[int], str]:
-        key = (round(lat, 6), round(lon, 6))
-        cached = self.road_cache.get(key)
-        
-        if cached:
-            return cached
-
-        nearest_road = None
-        min_distance = float('inf')
-
-        for road in self.extractor.roads.values():
-            for point in road.coordinates:
-                dist = calculate_distance(lat, lon, point[0], point[1])
-                if dist < min_distance:
-                    min_distance = dist
-                    nearest_road = road
-        
-        if nearest_road and min_distance <= 100:
-            road_id = nearest_road.osm_id
-            road_type = nearest_road.road_type
-            print(f"Found road type: min_distance: {min_distance} and road_id: {road_id} and road_type: {road_type} for key: {key}")
-        else:
-            road_id = None
-            road_type = "unknown"
-
-        self.road_cache[key] = (road_id, road_type)
-        return road_id, road_type
-
 
     def get_fuel_points(self, vehicle: dict, days: int = 7) -> List[FuelPoint]:
         """Get fuel points for a specific vehicle"""
-        import time
-        start_time = time.time()
         now = datetime.now()
         start_timestamp = int((now - timedelta(days=days)).timestamp())
         fuel_records = self.get_fuel_data(vehicle['id'], start_timestamp)
         location_data = self.get_vehicle_location_data(vehicle['agentid'], start_timestamp)
-        print(f"length of location: {len(location_data)} and cache: {len(self.road_cache)}")
-
-        # self.preload_road_info_multithreaded(location_data)
-        # # for index, location in enumerate(location_data, start=1):
-        # #     print(f"Processing location index: {index}")
-        # #     self.get_road_info(location[0], location[1])
-
-        # return []
-        
         points = []
-        
+
         # Convert location data to a more searchable format
         loc_timestamps = [loc[2] for loc in location_data]
-
-        print(f"Found {len(fuel_records)} fuel records for vehicle {vehicle['agentid']}")
-        print(f"Found {len(location_data)} location records for vehicle {vehicle['agentid']}")
-
-        for index, record in enumerate(fuel_records, start=1):  # start=1 makes it 1-based
+        for index, record in enumerate(fuel_records[:1], start=1):  # start=1 makes it 1-based
             sensor_data = record['sensor_data'].split(';')
-            print(f"Processing fuel record #{index}: size of sensor data: {len(sensor_data)}")
             for index, data_point in enumerate(sensor_data, start=1): 
                 if not data_point:
                     continue
@@ -330,8 +160,8 @@ class FuelDatabase:
                         continue
 
                 if location and speed > 0:
-                    osm_roadID, road_type = self.get_road_info_threadsafe(location[0], location[1])
-                    if osm_roadID == None:
+                    road = self.get_road(location[0], location[1])
+                    if road is None:
                         continue
                     points.append(FuelPoint(
                         timestamp=datetime.fromtimestamp(timestamp),
@@ -340,11 +170,9 @@ class FuelDatabase:
                         latitude=location[0],
                         longitude=location[1],
                         gps_speed=location[3],
-                        road_type=RoadType(road_type.upper()),
-                        osm_roadID=osm_roadID
+                        road_profile=RoadProfile.build_profile(road=road)
                     ))
 
-        print(f"Execution completed in {time.time() - start_time:.2f}s")
         return points
     
     def get_all_agent_ids(self):
@@ -358,5 +186,3 @@ class FuelDatabase:
         except Exception as e:
             logger.error(f"Failed to fetch agent IDs: {str(e)}")
             return []
-
-

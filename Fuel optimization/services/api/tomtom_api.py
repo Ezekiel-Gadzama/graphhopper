@@ -1,9 +1,7 @@
 import requests
 from typing import Dict, List, Tuple, Optional
 from config.settings import settings
-from .polyline import Polyline
 from models.road import Road
-from utils.geo import calculate_distance
 from shapely.geometry import LineString, Point
 from shapely.strtree import STRtree
 import time

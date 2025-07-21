@@ -1,11 +1,8 @@
 import requests
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, Tuple, Any
 from config.settings import settings
 from models.data_class import WeatherData
-from shapely.geometry import Point
-import math
-import time
-
+from models.road import Road
 class TomorrowAPI:
     
     cache_hits = 0
@@ -26,7 +23,7 @@ class TomorrowAPI:
         rounded_lon = round(lon / self.cache_resolution) * self.cache_resolution
         return (rounded_lat, rounded_lon)
 
-    def _fetch_weather(self, lat: float, lon: float) -> Optional[Dict]:
+    def _fetch_weather(self, lat: float, lon: float) -> Optional[Dict[str, Any]]:
         url = "https://api.tomorrow.io/v4/weather/realtime"
         params = {
             "location": f"{lat},{lon}",
@@ -37,15 +34,20 @@ class TomorrowAPI:
             response = requests.get(url, params=params)
             if response.status_code != 200:
                 self._log(f"Failed to fetch weather for ({lat},{lon}): {response.status_code}")
+                self._log(f"Full error response: {response.text}")
                 return None
 
             json_data = response.json()
             if self.verbose > 1:
                 print(json_data)
-            return WeatherData.from_api_response(json_data)
+            return json_data
         except Exception as e:
             self._log(f"Exception fetching weather: {e}")
             return None
+        
+    def get_or_fetch_weather_by_road(self, road: Road):
+        """Decoration function for getting traffic data via Road class"""
+        return self.get_or_fetch_weather(road.coordinates[0][0], road.coordinates[0][1])
 
     def get_or_fetch_weather(self, lat: float, lon: float) -> Optional[Dict]:
         key = self._round_coords(lat, lon)
@@ -66,6 +68,6 @@ class TomorrowAPI:
 
     def stats(self):
         return {
-            "cache_size": len(self.segment_cache),
+            "cache_size": len(self.cache),
             "cache_hits": self.cache_hits
         }

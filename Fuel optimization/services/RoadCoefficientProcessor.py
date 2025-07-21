@@ -27,7 +27,7 @@ class RoadCoefficientProcessor:
         coefficient *= cls._process_road_condition(road_profile.condition)
         coefficient *= cls._process_traffic(road_profile.traffic_data)
         coefficient *= cls._process_weather(road_profile.weather_data)
-        coefficient *= cls._process_slope(road_profile.slope)
+        coefficient *= cls._process_slope(road_profile.road.slope)
         coefficient *= cls._process_road_features(road_profile)
 
         # Final clamping adjustments
@@ -98,7 +98,7 @@ class RoadCoefficientProcessor:
         }
 
         slow_surfaces = {
-            SurfaceType.COBBLESTONE, SurfaceType.UNHEWN_COBBLESTONE, SurfaceType.PAVEMENT_STONES,
+            SurfaceType.COBBLESTONE, SurfaceType.UNHEWN_COBBLESTONE, SurfaceType.PAVING_STONES,
             SurfaceType.PAVING_STONES_LANES, SurfaceType.SETT, SurfaceType.ROCK, SurfaceType.RUBBER
         }
 
@@ -109,7 +109,7 @@ class RoadCoefficientProcessor:
         elif surface_type in slow_surfaces:
             return 0.75
         elif surface_type == SurfaceType.UNKNOWN:
-            return 0.9
+            return 1.0
         else:
             return 0.85  # Default for uncommon surfaces
 
@@ -166,32 +166,75 @@ class RoadCoefficientProcessor:
     @staticmethod
     def _process_weather(weather_data: Optional[WeatherData]) -> float:
         """
-        Adjust coefficient based on weather conditions.
-        Cold, wet, or poor visibility lowers the coefficient.
+        Adjust coefficient based on comprehensive weather conditions using WeatherData.
+        Incorporates temperature, precipitation, wind, visibility, UV, and weather codes.
         """
         if not weather_data:
             return 1.0
 
+        # Start with the pre-calculated weather factor
         coeff = weather_data.weather_factor
 
-        # Penalize temperatures far from 20°C
+        # Temperature effects (optimal range 15-25°C)
         if weather_data.temperature is not None:
-            temp_diff = abs(20 - weather_data.temperature)
-            coeff *= 1.0 - (temp_diff * 0.01)
+            if weather_data.temperature < -10:  # Extreme cold
+                coeff *= 0.85
+            elif weather_data.temperature < 0:  # Freezing
+                coeff *= 0.9
+            elif weather_data.temperature > 30:  # Extreme heat
+                coeff *= 0.88
 
-        # Reduce for high precipitation
+        # Precipitation effects (combined rain/snow/sleet)
         if weather_data.precipitation is not None:
-            coeff *= 1.0 - (min(weather_data.precipitation, 50) * 0.01)
+            if weather_data.precipitation > 10:  # Heavy precipitation
+                coeff *= 0.8
+            elif weather_data.precipitation > 5:
+                coeff *= 0.9
+            elif weather_data.precipitation > 1:
+                coeff *= 0.95
 
-        # Additional penalties
-        if weather_data.snow_depth and weather_data.snow_depth > 0:
-            coeff *= 0.9
-        if weather_data.visibility is not None and weather_data.visibility < 500:
-            coeff *= 0.85
-        if weather_data.wind_speed is not None and weather_data.wind_speed > 50:
-            coeff *= 0.95
+        # Wind effects (headwind/crosswind penalties)
+        if weather_data.wind_speed is not None:
+            if weather_data.wind_speed > 15:  # Strong wind (15 m/s ≈ 54 km/h)
+                coeff *= 0.85
+            elif weather_data.wind_speed > 10:
+                coeff *= 0.92
+            elif weather_data.wind_speed > 5:
+                coeff *= 0.97
 
-        return max(0.3, min(1.2, coeff))  # Clamp range
+        # Visibility effects
+        if weather_data.visibility is not None:
+            if weather_data.visibility < 200:  # Very poor visibility
+                coeff *= 0.8
+            elif weather_data.visibility < 500:
+                coeff *= 0.9
+            elif weather_data.visibility < 1000:
+                coeff *= 0.95
+
+        # UV index effects (AC/battery/cooling penalties)
+        if weather_data.uv_index is not None:
+            if weather_data.uv_index >= 8:  # Extreme UV
+                coeff *= 0.92
+            elif weather_data.uv_index >= 6:
+                coeff *= 0.96
+
+        # Weather code specific adjustments
+        if weather_data.weather_code is not None:
+            # See Tomorrow.io weather code documentation for values
+            if weather_data.weather_code in [4000, 4001, 4200, 4201]:  # Heavy rain
+                coeff *= 0.85
+            elif weather_data.weather_code in [5000, 5001, 5100, 5101]:  # Snow
+                coeff *= 0.8
+            elif weather_data.weather_code in [6000, 6001, 6200, 6201]:  # Freezing rain
+                coeff *= 0.75
+            elif weather_data.weather_code in [7100, 7101, 7102]:  # Fog
+                coeff *= 0.9
+
+        # Snow intensity specific penalty (separate from precipitation)
+        if weather_data.snow_intensity is not None and weather_data.snow_intensity > 0:
+            coeff *= 0.85  # Additional penalty for active snowfall
+
+        return max(0.3, min(1.2, coeff))  # Clamp to reasonable bounds
 
     @staticmethod
     def _process_slope(slope_percent_list: Optional[list[float]]) -> float:

@@ -3,7 +3,6 @@ target/
 *-gh/
 *.osm
 nbactions*.xml
-/config.yml
 build.xml
 maven/
 measurement*.properties
@@ -49,5 +48,6 @@ package-lock.json
 /secret
 .env
 *.poly
+/Fuel optimization/stored_data/osm_elevation.json
 test.py
 test2.py

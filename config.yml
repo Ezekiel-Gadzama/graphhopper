@@ -1,0 +1,82 @@
+graphhopper:
+
+  # Path to your OSM data file (PBF or XML)
+  datareader.file: "OSM/sri-lanka-latest.osm.pbf"
+
+  # Directory where GraphHopper stores graph data (cache)
+  graph.location: "graph-cache"
+
+#  # Elevation configuration
+#  graph:
+#    elevation:
+#      enabled: true
+#      provider: srtm
+#      cache_dir: "elevation_cache"
+#      dataaccess: RAM_STORE
+#      download: false
+#      preserve: true
+
+  # Routing profiles - add your profiles here
+  profiles:
+    - name: car
+      weighting: "custom"
+      custom_model_files: [car.json]
+
+  # Enable Contraction Hierarchies (CH) for the car profile to speed up routing
+  profiles_ch:
+    - profile: car
+
+  # Leave hybrid mode empty for now (optional, if you want LM preparation)
+  profiles_lm: []
+
+  # Encoded values - these add extra info for routing and details
+  graph.encoded_values: car_access,car_average_speed,road_access
+
+  # Ignore pedestrian and bike ways for motorized vehicle routing
+  import.osm.ignored_highways: footway,construction,cycleway,path,pedestrian,steps
+
+  # Data storage type (RAM_STORE is recommended for speed, disk storage can be RAM_STORE or MMAP)
+  graph.dataaccess.default_type: RAM_STORE
+
+  # Minimum size of connected subnetworks (reduces disconnected graphs)
+  prepare.min_network_size: 200
+  prepare.subnetworks.threads: 1
+
+  # Routing limits and timeouts
+  routing.snap_preventions_default: tunnel,bridge,ferry
+  routing.max_visited_nodes: 1000000
+  routing.timeout_ms: 300000
+
+server:
+  application_connectors:
+    - type: http
+      port: 8989
+      bind_host: localhost
+      max_request_header_size: 50k
+  admin_connectors:
+    - type: http
+      port: 8990
+      bind_host: localhost
+
+logging:
+  appenders:
+    - type: file
+      time_zone: UTC
+      current_log_filename: logs/graphhopper.log
+      log_format: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+      archive: true
+      archived_log_filename_pattern: ./logs/graphhopper-%d.log.gz
+      archived_file_count: 30
+      never_block: true
+    - type: console
+      time_zone: UTC
+      log_format: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+  loggers:
+    "com.graphhopper.osm_warnings":
+      level: DEBUG
+      additive: false
+      appenders:
+        - type: file
+          currentLogFilename: logs/osm_warnings.log
+          archive: false
+          logFormat: '[%level] %msg%n'

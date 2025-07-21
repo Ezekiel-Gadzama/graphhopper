@@ -1,6 +1,6 @@
 import folium
 from branca.colormap import linear
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 
 def visualize_route(location: Tuple[float, float], route: Dict, custom_model: Dict) -> None:
     m = folium.Map(location=[location[0], location[1]], zoom_start=13)
