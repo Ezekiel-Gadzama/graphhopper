@@ -30,7 +30,7 @@ graphhopper:
   profiles_lm: []
 
   # Encoded values - these add extra info for routing and details
-  graph.encoded_values: car_access,car_average_speed,road_access
+  graph.encoded_values: car_access,car_average_speed,road_access,surface,toll,lanes
 
   # Ignore pedestrian and bike ways for motorized vehicle routing
   import.osm.ignored_highways: footway,construction,cycleway,path,pedestrian,steps

@@ -115,7 +115,7 @@ class FuelOptimizer:
             self.custom_model.add_priority_rule(osm_id, multiplier)
             self._log(f"[{index}] Added rule: OSM ID {osm_id}, multiplier={multiplier}")
 
-        self._log(f"Average Coefficients: {fleet_profile.average_attr_coefficients}")
+        self._log(f"Average Coefficients: {fleet_profile.average_attr_coefficients}\n\n\n\n\n\n\n\n\n")
         self._log(f"Median Coefficients: {fleet_profile.median_attr_coefficients}")
 
         self.custom_model.save_to_file()

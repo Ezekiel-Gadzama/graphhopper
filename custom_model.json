@@ -1,0 +1,64 @@
+{
+  "priority": [
+    {
+      "if": "road_class == MOTORWAY",
+      "multiply_by": 1.7127432582719806
+    },
+    {
+      "if": "road_class == TRUNK",
+      "multiply_by": 1.0224776786214658
+    },
+    {
+      "if": "road_class == PRIMARY",
+      "multiply_by": 1.0
+    },
+    {
+      "if": "road_class == SECONDARY",
+      "multiply_by": 1.0
+    },
+    {
+      "if": "road_class == TERTIARY",
+      "multiply_by": 1.1800213555223897
+    },
+    {
+      "if": "road_class == UNCLASSIFIED",
+      "multiply_by": 1.3541571737709361
+    },
+    {
+      "if": "road_class == RESIDENTIAL",
+      "multiply_by": 0.8451084103336861
+    },
+    {
+      "if": "road_class == LIVING_STREET",
+      "multiply_by": 1.038984674383944
+    },
+    {
+      "if": "road_class == SERVICE",
+      "multiply_by": 0.8647784553775171
+    },
+    {
+      "if": "road_class == TRACK",
+      "multiply_by": 1.1051236225281122
+    },
+    {
+      "if": "road_class == PATH || road_class == PEDESTRIAN",
+      "multiply_by": 0.5
+    },
+    {
+      "if": "road_class == FOOTWAY",
+      "multiply_by": 1.055359899256245
+    },
+    {
+      "if": "surface == GROUND",
+      "multiply_by": 0.9919018536048243
+    },
+    {
+      "if": "surface == PAVED",
+      "multiply_by": 0.7490460660341844
+    },
+    {
+      "if": "surface == ASPHALT || surface == CONCRETE",
+      "multiply_by": 1.0
+    }
+  ]
+}

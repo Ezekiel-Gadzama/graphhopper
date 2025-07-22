@@ -25,9 +25,9 @@ class Settings:
     TOMTOM_API_KEY = os.getenv("TOMTOM_API_KEY")
     TOMORROW_API_KEY = os.getenv("TOMORROW_API_KEY")
     OSM_FILE_PATHS = [
-        # str(Path(BASE_DIR).parent / "OSM/south-fed-district-latest.osm.pbf"),
+        str(Path(BASE_DIR).parent / "OSM/south-fed-district-latest.osm.pbf"),
         str(Path(BASE_DIR).parent / "OSM/sri-lanka-latest.osm.pbf"),
-        # str(Path(BASE_DIR).parent / "OSM/moscow.osm.pbf")
+        str(Path(BASE_DIR).parent / "OSM/moscow.osm.pbf")
     ]
     CUSTOM_MODEL_PATH = str(Path(BASE_DIR).parent / "custom_model.json")
     GRAPHHOPPER_URL = os.getenv("GRAPHHOPPER_URL", "http://localhost:8989/route")

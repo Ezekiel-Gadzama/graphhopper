@@ -127,7 +127,7 @@ class FuelDatabase:
 
         # Convert location data to a more searchable format
         loc_timestamps = [loc[2] for loc in location_data]
-        for index, record in enumerate(fuel_records[:1], start=1):  # start=1 makes it 1-based
+        for index, record in enumerate(fuel_records, start=1):  # start=1 makes it 1-based
             sensor_data = record['sensor_data'].split(';')
             for index, data_point in enumerate(sensor_data, start=1): 
                 if not data_point:
