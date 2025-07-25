@@ -16,7 +16,6 @@
  *  limitations under the License.
  */
 package com.graphhopper.routing.weighting.custom;
-
 import com.graphhopper.json.Statement;
 import com.graphhopper.routing.ev.*;
 import com.graphhopper.routing.util.EncodingManager;
@@ -24,15 +23,14 @@ import com.graphhopper.routing.weighting.TurnCostProvider;
 import com.graphhopper.util.*;
 import com.graphhopper.util.shapes.BBox;
 import com.graphhopper.util.shapes.Polygon;
-import org.codehaus.commons.compiler.CompileException;
-import org.codehaus.commons.compiler.Location;
-import org.codehaus.commons.compiler.io.Readers;
-import org.codehaus.janino.Scanner;
-import org.codehaus.janino.*;
-import org.codehaus.janino.util.DeepCopier;
+import com.graphhopper.util.CustomModel;
+import freemarker.template.*;
+import javax.tools.*;
+import java.nio.file.*;
 import org.locationtech.jts.geom.Polygonal;
 import org.locationtech.jts.geom.prep.PreparedPolygon;
 import org.slf4j.LoggerFactory;
+import java.util.function.Function;
 
 import java.io.*;
 import java.util.*;
@@ -44,8 +42,6 @@ public class CustomModelParser {
     private static final AtomicLong longVal = new AtomicLong(1);
     static final String IN_AREA_PREFIX = "in_";
     static final String BACKWARD_PREFIX = "backward_";
-    private static final boolean JANINO_DEBUG = Boolean.getBoolean(Scanner.SYSTEM_PROPERTY_SOURCE_DEBUGGING_ENABLE);
-    private static final String SCRIPT_FILE_DIR = System.getProperty(Scanner.SYSTEM_PROPERTY_SOURCE_DEBUGGING_DIR, "./src/main/java/com/graphhopper/routing/weighting/custom");
     public static final String OSM_ID_KEY = "osm_id";
 
     // Without a cache the class creation takes 10-40ms which makes routingLM8 requests 20% slower on average.
@@ -65,18 +61,77 @@ public class CustomModelParser {
     // TODO perf compare with ConcurrentHashMap, but I guess, if there is a difference at all, it is not big for small maps
     private static final Map<String, Class<?>> INTERNAL_CACHE = Collections.synchronizedMap(new HashMap<>());
 
+
     private CustomModelParser() {
         // utility class
     }
 
-    /**
-     * This method creates a weighting from a CustomModel that must limit the speed. Either as an
-     * unconditional statement <code>{ "if": "true", "limit_to": "car_average_speed" }<code/> or as
-     * an if-elseif-else group.
-     */
+    public static void parseExpressions(
+            StringBuilder sb,
+            EncodedValueLookup lookup, // Changed from NameValidator
+            String errorContext,
+            Set<String> blockedVariables,
+            List<Statement> statements,
+            Function<String, String> variableTransformer,
+            String indentation
+    ) {
+        if (statements == null || statements.isEmpty())
+            return;
+
+        for (Statement stmt : statements) {
+            if (stmt.isBlock()) {
+                parseExpressions(sb, lookup, errorContext, blockedVariables,
+                        stmt.doBlock(), variableTransformer, indentation + "    ");
+            } else {
+                ClassHelper classHelper = new DefaultClassHelper(lookup);
+                String condition = ConditionalExpressionVisitor.toJavaExpression(stmt.condition(), lookup, classHelper);
+                String value = ValueExpressionVisitor.toJavaExpression(stmt.value(), lookup);
+                sb.append(indentation).append("if (").append(condition).append(") {\n");
+                sb.append(indentation).append("    return ").append(value).append(";\n");
+                sb.append(indentation).append("}\n");
+            }
+        }
+    }
+
+    private static Class<?> getCachedClass(String key, boolean isInternal) {
+        if (isInternal) {
+            return INTERNAL_CACHE.get(key);
+        }
+        return CACHE_SIZE > 0 ? CACHE.get(key) : null;
+    }
+
+    private static void cacheClass(String key, Class<?> clazz, boolean isInternal) {
+        if (isInternal) {
+            INTERNAL_CACHE.put(key, clazz);
+            if (INTERNAL_CACHE.size() > 100) {
+                CACHE.putAll(INTERNAL_CACHE);
+                INTERNAL_CACHE.clear();
+                LoggerFactory.getLogger(CustomModelParser.class).warn("Internal cache too large, cleared");
+            }
+        } else if (CACHE_SIZE > 0) {
+            CACHE.put(key, clazz);
+        }
+    }
+
+    private static CustomWeighting.Parameters instantiateWeighting(Class<?> clazz, CustomModel customModel, EncodedValueLookup lookup) {
+        try {
+            CustomWeightingHelper helper = (CustomWeightingHelper) clazz.getDeclaredConstructor().newInstance();
+            helper.init(customModel, lookup, CustomModel.getAreasAsMap(customModel.getAreas()));
+            return new CustomWeighting.Parameters(
+                    helper::getSpeed, helper::calcMaxSpeed,
+                    helper::getPriority, helper::calcMaxPriority,
+                    customModel.getDistanceInfluence() == null ? 0 : customModel.getDistanceInfluence(),
+                    customModel.getHeadingPenalty() == null ? Parameters.Routing.DEFAULT_HEADING_PENALTY : customModel.getHeadingPenalty());
+        } catch (Exception ex) {
+            throw new IllegalArgumentException("Cannot instantiate weighting", ex);
+        }
+    }
+
+
     public static CustomWeighting createWeighting(EncodedValueLookup lookup, TurnCostProvider turnCostProvider, CustomModel customModel) {
         if (customModel == null)
             throw new IllegalStateException("CustomModel cannot be null");
+        System.out.println("na fuck up customModel: " + customModel + "  lookup: " + lookup);
         CustomWeighting.Parameters parameters = createWeightingParameters(customModel, lookup);
         return new CustomWeighting(turnCostProvider, parameters);
     }
@@ -88,132 +143,63 @@ public class CustomModelParser {
         return new CustomWeighting2(turnCostProvider, parameters);
     }
 
-    /**
-     * This method compiles a new subclass of CustomWeightingHelper composed of the provided CustomModel caches this
-     * and returns an instance.
-     */
     public static CustomWeighting.Parameters createWeightingParameters(CustomModel customModel, EncodedValueLookup lookup) {
         String key = customModel.toString();
-        Class<?> clazz = customModel.isInternal() ? INTERNAL_CACHE.get(key) : null;
-        if (CACHE_SIZE > 0 && clazz == null)
-            clazz = CACHE.get(key);
+        Class<?> clazz = getCachedClass(key, customModel.isInternal());
         if (clazz == null) {
             clazz = createClazz(customModel, lookup);
-            if (customModel.isInternal()) {
-                INTERNAL_CACHE.put(key, clazz);
-                if (INTERNAL_CACHE.size() > 100) {
-                    CACHE.putAll(INTERNAL_CACHE);
-                    INTERNAL_CACHE.clear();
-                    LoggerFactory.getLogger(CustomModelParser.class).warn("Internal cache must stay small but was "
-                            + INTERNAL_CACHE.size() + ". Cleared it. Misuse of CustomModel::internal?");
-                }
-            } else if (CACHE_SIZE > 0) {
-                CACHE.put(key, clazz);
-            }
+            cacheClass(key, clazz, customModel.isInternal());
         }
-
-        try {
-            // The class does not need to be thread-safe as we create an instance per request
-            CustomWeightingHelper prio = (CustomWeightingHelper) clazz.getDeclaredConstructor().newInstance();
-            prio.init(customModel, lookup, CustomModel.getAreasAsMap(customModel.getAreas()));
-            return new CustomWeighting.Parameters(
-                    prio::getSpeed, prio::calcMaxSpeed,
-                    prio::getPriority, prio::calcMaxPriority,
-                    customModel.getDistanceInfluence() == null ? 0 : customModel.getDistanceInfluence(),
-                    customModel.getHeadingPenalty() == null ? Parameters.Routing.DEFAULT_HEADING_PENALTY : customModel.getHeadingPenalty());
-        } catch (ReflectiveOperationException ex) {
-            throw new IllegalArgumentException("Cannot compile expression " + ex.getMessage(), ex);
-        }
+        System.out.println("Been seeing you");;
+        return instantiateWeighting(clazz, customModel, lookup);
     }
 
-    /**
-     * This method does the following:
-     * <ul>
-     * <li>
-     *     1. parse the value expressions (RHS) to know about additional encoded values ('findVariables')
-     *     and check for multiplications with negative values.
-     * </li>
-     * <li>2. parse conditional expression of priority and speed statements -> done in ConditionalExpressionVisitor (don't parse RHS expressions again)
-     * </li>
-     * <li>3. create class template as String, inject the created statements and create the Class
-     * </li>
-     * </ul>
-     */
     private static Class<?> createClazz(CustomModel customModel, EncodedValueLookup lookup) {
         try {
-            Set<String> priorityVariables = ValueExpressionVisitor.findVariables(customModel.getPriority(), lookup);
-            List<Java.BlockStatement> priorityStatements = createGetPriorityStatements(priorityVariables, customModel, lookup);
-
-            if (customModel.getSpeed().isEmpty())
-                throw new IllegalArgumentException("At least one initial statement under 'speed' is required.");
-
-            List<Statement> firstGroup = splitIntoGroup(customModel.getSpeed()).get(0);
-            if (firstGroup.size() > 1) {
-                Statement lastSt = firstGroup.get(firstGroup.size() - 1);
-                if (lastSt.operation() != Statement.Op.LIMIT || lastSt.keyword() != Statement.Keyword.ELSE)
-                    throw new IllegalArgumentException("The first group needs to end with an 'else' (or contain a single unconditional 'if' statement).");
-            } else {
-                Statement firstSt = firstGroup.get(0);
-                if (!"true".equals(firstSt.condition()) || firstSt.operation() != Statement.Op.LIMIT || firstSt.keyword() != Statement.Keyword.IF)
-                    throw new IllegalArgumentException("The first group needs to contain a single unconditional 'if' statement (or end with an 'else').");
-            }
-
-            Set<String> speedVariables = ValueExpressionVisitor.findVariables(customModel.getSpeed(), lookup);
-            List<Java.BlockStatement> speedStatements = createGetSpeedStatements(speedVariables, customModel, lookup);
-
-            // Create different class name, which is required only for debugging.
-            // TODO does it improve performance too? I.e. it could be that the JIT is confused if different classes
-            //  have the same name and it mixes performance stats. See https://github.com/janino-compiler/janino/issues/137
-            long counter = longVal.incrementAndGet();
-            String classTemplate = createClassTemplate(counter, priorityVariables, speedVariables, lookup, CustomModel.getAreasAsMap(customModel.getAreas()));
-            Java.CompilationUnit cu = (Java.CompilationUnit) new Parser(new Scanner("source", new StringReader(classTemplate))).
-                    parseAbstractCompilationUnit();
-            cu = injectStatements(priorityStatements, speedStatements, cu);
-            SimpleCompiler sc = createCompiler(counter, cu);
-            return sc.getClassLoader().loadClass("com.graphhopper.routing.weighting.custom.JaninoCustomWeightingHelperSubclass" + counter);
-        } catch (Exception ex) {
-            String errString = "Cannot compile expression";
-            throw new IllegalArgumentException(errString + ": " + ex.getMessage(), ex);
+            ClassHelper classHelper = new DefaultClassHelper(lookup);
+            return CustomModelCompiler.compile(customModel, lookup, classHelper);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to compile custom model", e);
         }
     }
 
-    public static List<String> findVariablesForEncodedValuesString(CustomModel model, NameValidator nameValidator, ClassHelper classHelper) {
+    public static List<String> findVariablesForEncodedValuesString(CustomModel model,
+                                                                   NameValidator nameValidator,
+                                                                   Function<String, String> variableTransformer,
+                                                                   EncodedValueLookup lookup) {
+        if (model == null)
+            return Collections.emptyList();
+
         Set<String> variables = new LinkedHashSet<>();
-        // avoid parsing exception for backward_xy or in_xy ...
-        NameValidator nameValidatorIntern = s -> {
-            // some literals are no variables and would throw an exception (encoded value not found)
-            if (Character.isUpperCase(s.charAt(0)) || s.startsWith(BACKWARD_PREFIX) || s.startsWith(IN_AREA_PREFIX))
-                return true;
-            if (nameValidator.isValid(s)) {
-                variables.add(s);
-                return true;
-            }
-            return false;
-        };
-        findVariablesForEncodedValuesString(model.getPriority(), nameValidatorIntern, classHelper);
-        findVariablesForEncodedValuesString(model.getSpeed(), nameValidatorIntern, classHelper);
+        parseVariablesFromStatements(model.getPriority(), variables, nameValidator, variableTransformer, lookup);
+        parseVariablesFromStatements(model.getSpeed(), variables, nameValidator, variableTransformer, lookup);
         return new ArrayList<>(variables);
     }
 
-    private static void findVariablesForEncodedValuesString(List<Statement> statements, NameValidator nameValidator, ClassHelper classHelper) {
-        List<List<Statement>> groups = CustomModelParser.splitIntoGroup(statements);
-        for (List<Statement> group : groups) {
-            for (Statement statement : group) {
-                if (statement.isBlock()) {
-                    findVariablesForEncodedValuesString(statement.doBlock(), nameValidator, classHelper);
-                } else {
-                    // ignore potential problems; collect only variables in this step
-                    ConditionalExpressionVisitor.parse(statement.condition(), nameValidator, classHelper);
-                    ValueExpressionVisitor.parse(statement.value(), nameValidator);
+    private static void parseVariablesFromStatements(List<Statement> statements, Set<String> variables,
+                                                     NameValidator validator, Function<String, String> variableTransformer,
+                                                     EncodedValueLookup lookup) {
+        if (statements == null || lookup == null)
+            return;
+
+        ClassHelper classHelper = new DefaultClassHelper(lookup); // Instantiate here
+
+        for (Statement stmt : statements) {
+            if (stmt == null) continue;
+
+            if (stmt.isBlock()) {
+                parseVariablesFromStatements(stmt.doBlock(), variables, validator, variableTransformer, lookup);
+            } else {
+                try {
+                    variables.addAll(ConditionalExpressionVisitor.findVariables(stmt.condition(), lookup, classHelper));
+                    variables.addAll(ValueExpressionVisitor.findVariables(stmt.value(), lookup));
+                } catch (Exception e) {
+                    throw new IllegalArgumentException("Error parsing statement: " + stmt, e);
                 }
             }
         }
     }
 
-    /**
-     * Splits the specified list into several lists of statements starting with if.
-     * I.e. a group consists of one 'if' and zero or more 'else_if' and 'else' statements.
-     */
     static List<List<Statement>> splitIntoGroup(List<Statement> statements) {
         List<List<Statement>> result = new ArrayList<>();
         List<Statement> group = null;
@@ -226,47 +212,6 @@ public class CustomModelParser {
         return result;
     }
 
-    /**
-     * Parse the expressions from CustomModel relevant for the method getSpeed - see createClassTemplate.
-     *
-     * @return the created statements (parsed expressions)
-     */
-    private static List<Java.BlockStatement> createGetSpeedStatements(Set<String> speedVariables,
-                                                                      CustomModel customModel, EncodedValueLookup lookup) throws Exception {
-        List<Java.BlockStatement> speedStatements = new ArrayList<>(verifyExpressions(new StringBuilder(),
-                "speed entry", speedVariables, customModel.getSpeed(), lookup));
-        String speedMethodStartBlock = "double value = " + CustomWeightingHelper.GLOBAL_MAX_SPEED + ";\n";
-        // potentially we fetch EncodedValues twice (one time here and one time for priority)
-        for (String arg : speedVariables) {
-            speedMethodStartBlock += getVariableDeclaration(lookup, arg);
-        }
-        speedStatements.addAll(0, new Parser(new org.codehaus.janino.Scanner("getSpeed", new StringReader(speedMethodStartBlock))).
-                parseBlockStatements());
-        return speedStatements;
-    }
-
-    /**
-     * Parse the expressions from CustomModel relevant for the method getPriority - see createClassTemplate.
-     *
-     * @return the created statements (parsed expressions)
-     */
-    private static List<Java.BlockStatement> createGetPriorityStatements(Set<String> priorityVariables,
-                                                                         CustomModel customModel, EncodedValueLookup lookup) throws Exception {
-        List<Java.BlockStatement> priorityStatements = new ArrayList<>(verifyExpressions(new StringBuilder(),
-                "priority entry", priorityVariables, customModel.getPriority(), lookup));
-        String priorityMethodStartBlock = "double value = " + CustomWeightingHelper.GLOBAL_PRIORITY + ";\n";
-        for (String arg : priorityVariables) {
-            priorityMethodStartBlock += getVariableDeclaration(lookup, arg);
-        }
-        priorityStatements.addAll(0, new Parser(new org.codehaus.janino.Scanner("getPriority", new StringReader(priorityMethodStartBlock))).
-                parseBlockStatements());
-        return priorityStatements;
-    }
-
-    /**
-     * For the methods getSpeed and getPriority we declare variables that contain the encoded value of the current edge
-     * or if an area contains the current edge.
-     */
     private static String getVariableDeclaration(EncodedValueLookup lookup, final String arg) {
         if (arg.equals(OSM_ID_KEY)) {
             return "long " + arg + " = edge.get(" + OSM_ID_KEY + "_enc);\n";
@@ -293,11 +238,6 @@ public class CustomModelParser {
         }
     }
 
-    /**
-     * @return the interface as string of the provided EncodedValue, e.g. IntEncodedValue (only interface) or
-     * BooleanEncodedValue (first interface). For StringEncodedValue we return IntEncodedValue to return the index
-     * instead of the String for faster comparison.
-     */
     private static String getInterface(EncodedValue enc) {
         if (enc instanceof StringEncodedValue) return IntEncodedValue.class.getSimpleName();
         if (enc.getClass().getInterfaces().length == 0) return enc.getClass().getSimpleName();
@@ -318,12 +258,6 @@ public class CustomModelParser {
         throw new IllegalArgumentException("Unsupported EncodedValue: " + encodedValue.getClass());
     }
 
-    /**
-     * Create the class source file from the detected variables (priorityVariables and speedVariables). We assume that
-     * these variables are safe although they are user input because we collected them from parsing via Janino. This
-     * means that the source file is free from user input and could be directly compiled. Before we do this we still
-     * have to inject that parsed and safe user expressions in a later step.
-     */
     private static String createClassTemplate(long counter,
                                               Set<String> priorityVariables, Set<String> speedVariables,
                                               EncodedValueLookup lookup, Map<String, JsonFeature> areas) {
@@ -403,146 +337,23 @@ public class CustomModelParser {
                 + "}";
     }
 
-    /**
-     * This method does:
-     * 1. check user expressions via Parser.parseConditionalExpression and only allow whitelisted variables and methods.
-     * 2. while this check it also guesses the variable names and stores it in createObjects
-     * 3. creates if-then-elseif expressions from the checks and returns them as BlockStatements
-     *
-     * @return the created if-then, else and elseif statements
-     */
-    private static List<Java.BlockStatement> verifyExpressions(StringBuilder expressions, String info, Set<String> createObjects,
-                                                               List<Statement> list, EncodedValueLookup lookup) throws Exception {
-        // allow variables, all encoded values, constants and special variables like in_xyarea or backward_car_access
-        NameValidator nameInConditionValidator = name -> lookup.hasEncodedValue(name)
-                || name.toUpperCase(Locale.ROOT).equals(name)
-                || name.startsWith(IN_AREA_PREFIX)
-                || (name.startsWith(BACKWARD_PREFIX) && lookup.hasEncodedValue(name.substring(BACKWARD_PREFIX.length())))
-                || name.equals(OSM_ID_KEY);  // Add this line for OSM ID support
+    private static class DefaultClassHelper implements ClassHelper {
+        private final EncodedValueLookup lookup;
 
-        ClassHelper helper = key -> getReturnType(lookup.getEncodedValue(key, EncodedValue.class));
-
-        parseExpressions(expressions, nameInConditionValidator, info, createObjects, list, helper, "");
-        expressions.append("return value;\n");
-        return new Parser(new org.codehaus.janino.Scanner(info, new StringReader(expressions.toString()))).
-                parseBlockStatements();
-    }
-
-    static void parseExpressions(StringBuilder expressions, NameValidator nameInConditionValidator,
-                                 String exceptionInfo, Set<String> createObjects, List<Statement> list,
-                                 ClassHelper classHelper, String indentation) {
-
-        for (Statement statement : list) {
-            // avoid parsing the RHS value expression again as we just did it to get the maximum values in createClazz
-            if (statement.keyword() == Statement.Keyword.ELSE) {
-                if (!Helper.isEmpty(statement.condition()))
-                    throw new IllegalArgumentException("condition must be empty but was " + statement.condition());
-
-                expressions.append(indentation);
-                if (statement.isBlock()) {
-                    expressions.append("else {");
-                    parseExpressions(expressions, nameInConditionValidator, exceptionInfo, createObjects, statement.doBlock(), classHelper, indentation + "  ");
-                    expressions.append(indentation).append("}\n");
-                } else {
-                    expressions.append("else {").append(statement.operation().build(statement.value())).append("; }\n");
-                }
-            } else if (statement.keyword() == Statement.Keyword.ELSEIF || statement.keyword() == Statement.Keyword.IF) {
-                ParseResult parseResult = ConditionalExpressionVisitor.parse(statement.condition(), nameInConditionValidator, classHelper);
-                if (!parseResult.ok)
-                    throw new IllegalArgumentException(exceptionInfo + " invalid condition \"" + statement.condition() + "\"" +
-                            (parseResult.invalidMessage == null ? "" : ": " + parseResult.invalidMessage));
-                createObjects.addAll(parseResult.guessedVariables);
-                if (statement.keyword() == Statement.Keyword.ELSEIF)
-                    expressions.append(indentation).append("else ");
-
-                expressions.append(indentation);
-                if (statement.isBlock()) {
-                    expressions.append("if (").append(parseResult.converted).append(") {\n");
-                    parseExpressions(expressions, nameInConditionValidator, exceptionInfo, createObjects, statement.doBlock(), classHelper, indentation + "  ");
-                    expressions.append(indentation).append("}\n");
-                } else {
-                    expressions.append("if (").append(parseResult.converted).append(") {").
-                            append(statement.operation().build(statement.value())).append(";}\n");
-                }
-            } else {
-                throw new IllegalArgumentException("The statement must be either 'if', 'else_if' or 'else'");
-            }
+        DefaultClassHelper(EncodedValueLookup lookup) {
+            this.lookup = lookup;
         }
-    }
 
-    /**
-     * Injects the already parsed expressions (converted to BlockStatement) via Janino's DeepCopier to the provided
-     * CompilationUnit cu (a class file).
-     */
-    private static Java.CompilationUnit injectStatements(List<Java.BlockStatement> priorityStatements,
-                                                         List<Java.BlockStatement> speedStatements,
-                                                         Java.CompilationUnit cu) throws CompileException {
-        cu = new DeepCopier() {
-            boolean speedInjected = false;
-            boolean priorityInjected = false;
-
-            @Override
-            public Java.MethodDeclarator copyMethodDeclarator(Java.MethodDeclarator subject) throws CompileException {
-                if (subject.name.equals("getSpeed") && !speedStatements.isEmpty() && !speedInjected) {
-                    speedInjected = true;
-                    return injectStatements(subject, this, speedStatements);
-                } else if (subject.name.equals("getPriority") && !priorityStatements.isEmpty() && !priorityInjected) {
-                    priorityInjected = true;
-                    return injectStatements(subject, this, priorityStatements);
-                } else {
-                    return super.copyMethodDeclarator(subject);
-                }
+        @Override
+        public String getClassName(String encodedValueName) {
+            if ("road_class".equals(encodedValueName)) {
+                return "RoadClass";
             }
-        }.copyCompilationUnit(cu);
-        return cu;
-    }
-
-    private static Java.MethodDeclarator injectStatements(Java.MethodDeclarator subject, DeepCopier deepCopier,
-                                                          List<Java.BlockStatement> statements) {
-        try {
-            if (statements.isEmpty())
-                throw new IllegalArgumentException("Statements cannot be empty when copying method");
-            Java.MethodDeclarator methodDecl = new Java.MethodDeclarator(
-                    new Location("m1", 1, 1),
-                    subject.getDocComment(),
-                    deepCopier.copyModifiers(subject.getModifiers()),
-                    deepCopier.copyOptionalTypeParameters(subject.typeParameters),
-                    deepCopier.copyType(subject.type),
-                    subject.name,
-                    deepCopier.copyFormalParameters(subject.formalParameters),
-                    deepCopier.copyTypes(subject.thrownExceptions),
-                    deepCopier.copyOptionalElementValue(subject.defaultValue),
-                    deepCopier.copyOptionalStatements(statements)
-            );
-            statements.forEach(st -> st.setEnclosingScope(methodDecl));
-            return methodDecl;
-        } catch (Exception ex) {
-            throw new RuntimeException(ex);
-        }
-    }
-
-    private static SimpleCompiler createCompiler(long counter, Java.AbstractCompilationUnit cu) throws CompileException {
-        if (JANINO_DEBUG) {
-            try {
-                StringWriter sw = new StringWriter();
-                Unparser.unparse(cu, sw);
-                // System.out.println(sw.toString());
-                File dir = new File(SCRIPT_FILE_DIR);
-                File temporaryFile = new File(dir, "JaninoCustomWeightingHelperSubclass" + counter + ".java");
-                Reader reader = Readers.teeReader(
-                        new StringReader(sw.toString()), // in
-                        new FileWriter(temporaryFile),   // out
-                        true               // closeWriterOnEoi
-                );
-                return new SimpleCompiler(temporaryFile.getAbsolutePath(), reader);
-            } catch (Exception ex) {
-                throw new RuntimeException(ex);
+            EncodedValue enc = lookup.getEncodedValue(encodedValueName, EncodedValue.class);
+            if (enc instanceof EnumEncodedValue) {
+                return ((EnumEncodedValue<?>) enc).getEnumType().getSimpleName();
             }
-        } else {
-            SimpleCompiler compiler = new SimpleCompiler();
-            // compiler.setWarningHandler((handle, message, location) -> System.out.println(handle + ", " + message + ", " + location));
-            compiler.cook(cu);
-            return compiler;
+            throw new IllegalArgumentException(encodedValueName + " is not an enum encoded value");
         }
     }
 }

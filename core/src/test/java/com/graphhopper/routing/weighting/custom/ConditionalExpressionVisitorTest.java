@@ -43,7 +43,7 @@ public class ConditionalExpressionVisitorTest {
                 ") edge (",
                 "in(area_blup(), edge)",
                 "s -> truevalue")) {
-            ParseResult res = parse(toParse, allNamesInvalid, k -> "");
+            ConditionalExpressionVisitor.ParseResult res = parse(toParse, allNamesInvalid, k -> "");
             assertFalse(res.ok, "should not be simple condition: " + toParse);
             assertTrue(res.guessedVariables == null || res.guessedVariables.isEmpty());
         }
@@ -55,7 +55,7 @@ public class ConditionalExpressionVisitorTest {
     public void testConvertExpression() {
         NameValidator validVariable = s -> Helper.toUpperCase(s).equals(s) || s.equals("road_class") || s.equals("toll");
 
-        ParseResult result = parse("toll == NO", validVariable, k -> "");
+        ConditionalExpressionVisitor.ParseResult result = parse("toll == NO", validVariable, k -> "");
         assertTrue(result.ok);
         assertEquals("[toll]", result.guessedVariables.toString());
 
@@ -77,7 +77,7 @@ public class ConditionalExpressionVisitorTest {
         NameValidator validVariable = s -> Helper.toUpperCase(s).equals(s)
                 || s.equals("road_class") || s.equals("toll") || s.equals("my_speed") || s.equals("backward_my_speed");
 
-        ParseResult result = parse("in_something", validVariable, k -> "");
+        ConditionalExpressionVisitor.ParseResult result = parse("in_something", validVariable, k -> "");
         assertTrue(result.ok);
         assertEquals("[in_something]", result.guessedVariables.toString());
 
@@ -122,14 +122,14 @@ public class ConditionalExpressionVisitorTest {
 
     @Test
     public void testAbs() {
-        ParseResult result = parse("Math.abs(average_slope) < -0.5", "average_slope"::equals, k -> "");
+        ConditionalExpressionVisitor.ParseResult result = parse("Math.abs(average_slope) < -0.5", "average_slope"::equals, k -> "");
         assertTrue(result.ok);
         assertEquals("[average_slope]", result.guessedVariables.toString());
     }
 
     @Test
     public void testNegativeConstant() {
-        ParseResult result = parse("average_slope < -0.5", "average_slope"::equals, k -> "");
+        ConditionalExpressionVisitor.ParseResult result = parse("average_slope < -0.5", "average_slope"::equals, k -> "");
         assertTrue(result.ok);
         assertEquals("[average_slope]", result.guessedVariables.toString());
         result = parse("-average_slope > -0.5", "average_slope"::equals, k -> "");

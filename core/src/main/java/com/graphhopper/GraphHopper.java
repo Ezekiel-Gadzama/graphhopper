@@ -66,6 +66,7 @@ import java.text.DateFormat;
 import java.util.*;
 import java.util.function.BiFunction;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
@@ -597,6 +598,7 @@ public class GraphHopper {
     protected EncodingManager buildEncodingManager(Map<String, PMap> encodedValuesWithProps,
                                                    Map<String, ImportUnit> activeImportUnits,
                                                    Map<String, List<String>> restrictionVehicleTypesByProfile) {
+        // First collect all encoded values that will be added
         List<EncodedValue> encodedValues = new ArrayList<>(activeImportUnits.entrySet().stream()
                 .map(e -> {
                     Function<PMap, EncodedValue> f = e.getValue().getCreateEncodedValue();
@@ -607,15 +609,45 @@ public class GraphHopper {
 
         encodedValues.addAll(createSubnetworkEncodedValues());
 
-        List<String> sortedEVs = getEVSortIndex(profilesByName);
-        encodedValues.sort(Comparator.comparingInt(ev -> sortedEVs.indexOf(ev.getName())));
+        // Create a temporary map to check for duplicates
+        Map<String, EncodedValue> allEncodedValues = new LinkedHashMap<>();
+        for (EncodedValue ev : encodedValues) {
+            if (allEncodedValues.put(ev.getName(), ev) != null) {
+                throw new IllegalArgumentException("EncodedValue already exists: " + ev.getName());
+            }
+        }
 
+        // Now add required core encoded values if they don't exist
+        addIfMissing(allEncodedValues, "car_access", () -> VehicleAccess.create("car"));
+        addIfMissing(allEncodedValues, "car_average_speed", () -> VehicleSpeed.create("car", 5, 5, false));
+        addIfMissing(allEncodedValues, RoadAccess.KEY, RoadAccess::create);
+        addIfMissing(allEncodedValues, RoadClass.KEY, RoadClass::create);
+        addIfMissing(allEncodedValues, RoadEnvironment.KEY, RoadEnvironment::create);
+        addIfMissing(allEncodedValues, Roundabout.KEY, Roundabout::create);
+        addIfMissing(allEncodedValues, RoadClassLink.KEY, RoadClassLink::create);
+        addIfMissing(allEncodedValues, MaxSpeed.KEY, MaxSpeed::create);
+
+        // Sort the encoded values according to profile requirements
+        List<String> sortedEVs = getEVSortIndex(profilesByName);
+        List<EncodedValue> sortedEncodedValues = new ArrayList<>(allEncodedValues.values());
+        sortedEncodedValues.sort(Comparator.comparingInt(ev -> sortedEVs.indexOf(ev.getName())));
+
+        // Build the EncodingManager
         EncodingManager.Builder emBuilder = new EncodingManager.Builder();
-        encodedValues.forEach(emBuilder::add);
+        sortedEncodedValues.forEach(emBuilder::add);
+
+        // Add turn cost restrictions if needed
         restrictionVehicleTypesByProfile.entrySet().stream()
                 .filter(e -> !e.getValue().isEmpty())
                 .forEach(e -> emBuilder.addTurnCostEncodedValue(TurnRestriction.create(e.getKey())));
+
         return emBuilder.build();
+    }
+
+    private void addIfMissing(Map<String, EncodedValue> encodedValues, String key, Supplier<EncodedValue> creator) {
+        if (!encodedValues.containsKey(key)) {
+            encodedValues.put(key, creator.get());
+        }
     }
 
     protected List<BooleanEncodedValue> createSubnetworkEncodedValues() {
@@ -840,12 +872,17 @@ public class GraphHopper {
         Map<String, PMap> encodedValuesWithProps = parseEncodedValueString(encodedValuesString);
         NameValidator nameValidator = s -> importRegistry.createImportUnit(s) != null;
         Set<String> missing = new LinkedHashSet<>();
-        profilesByName.values().
-                forEach(profile -> CustomModelParser.findVariablesForEncodedValuesString(profile.getCustomModel(), nameValidator, s -> "").
-                        forEach(var -> {
-                            if (!encodedValuesWithProps.containsKey(var)) missing.add(var);
-                            encodedValuesWithProps.putIfAbsent(var, new PMap());
-                        }));
+        profilesByName.values().forEach(profile ->
+                CustomModelParser.findVariablesForEncodedValuesString(
+                        profile.getCustomModel(),
+                        nameValidator,
+                        s -> "",
+                        encodingManager // Add this 4th parameter
+                ).forEach(var -> {
+                    if (!encodedValuesWithProps.containsKey(var)) missing.add(var);
+                    encodedValuesWithProps.putIfAbsent(var, new PMap());
+                })
+        );
         if (!missing.isEmpty()) {
             String encodedValuesString = encodedValuesWithProps.entrySet().stream()
                     .map(e -> e.getKey() + (e.getValue().isEmpty() ? "" : ("|" + e.getValue().toMap().entrySet().stream().map(p -> p.getKey() + "=" + p.getValue()).collect(Collectors.joining("|")))))
@@ -1223,10 +1260,12 @@ public class GraphHopper {
     }
 
     public final Weighting createWeighting(Profile profile, PMap hints) {
+        System.out.println("Got to this place");
         return createWeighting(profile, hints, false);
     }
 
     public final Weighting createWeighting(Profile profile, PMap hints, boolean disableTurnCosts) {
+        System.out.println("I am waiting here");
         return createWeightingFactory().createWeighting(profile, hints, disableTurnCosts);
     }
 

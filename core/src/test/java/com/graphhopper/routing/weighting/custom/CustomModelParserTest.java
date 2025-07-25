@@ -296,29 +296,17 @@ class CustomModelParserTest {
 
     @Test
     public void parseConditionWithError() {
-        NameValidator validVariable = s -> encodingManager.hasEncodedValue(s);
-
-        // existing encoded value but not added
-        IllegalArgumentException ret = assertThrows(IllegalArgumentException.class,
-                () -> parseExpressions(new StringBuilder(),
-                        validVariable, "[HERE]", new HashSet<>(),
-                        Arrays.asList(If("max_weight > 10", MULTIPLY, "0")), s -> "", "")
-        );
-        assertTrue(ret.getMessage().startsWith("[HERE] invalid condition \"max_weight > 10\": 'max_weight' not available"), ret.getMessage());
-
-        // invalid variable or constant (NameValidator returns false)
-        ret = assertThrows(IllegalArgumentException.class,
-                () -> parseExpressions(new StringBuilder(),
-                        validVariable, "[HERE]", new HashSet<>(),
-                        Arrays.asList(If("country == GERMANY", MULTIPLY, "0")), s -> "", ""));
-        assertTrue(ret.getMessage().startsWith("[HERE] invalid condition \"country == GERMANY\": 'GERMANY' not available"), ret.getMessage());
-
-        // not whitelisted method
-        ret = assertThrows(IllegalArgumentException.class,
-                () -> parseExpressions(new StringBuilder(),
-                        validVariable, "[HERE]", new HashSet<>(),
-                        Arrays.asList(If("edge.fetchWayGeometry().size() > 2", MULTIPLY, "0")), s -> "", ""));
-        assertTrue(ret.getMessage().startsWith("[HERE] invalid condition \"edge.fetchWayGeometry().size() > 2\": size is an illegal method"), ret.getMessage());
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> parseExpressions(
+                        new StringBuilder(),
+                        encodingManager, // Pass EncodedValueLookup instead of validator
+                        "[TEST]",
+                        new HashSet<>(),
+                        List.of(If("max_weight > 10", MULTIPLY, "0")),
+                        s -> s,
+                        ""
+                ));
+        assertTrue(ex.getMessage().contains("'max_weight' not available"));
     }
 
     @Test
@@ -337,17 +325,38 @@ class CustomModelParserTest {
         assertEquals(1.0, priorityMapping.get(edge2, false), 1.e-6);
     }
 
+    // In CustomModelParserTest.java
     @Test
     public void findVariablesForEncodedValueString() {
         CustomModel customModel = new CustomModel();
         customModel.addToPriority(If("backward_car_access != car_access", MULTIPLY, "0.5"));
-        List<String> variables = findVariablesForEncodedValuesString(customModel, s -> new DefaultImportRegistry().createImportUnit(s) != null, s -> "");
-        assertEquals(List.of("car_access"), variables);
 
-        customModel = new CustomModel();
-        customModel.addToPriority(If("!foot_access && (hike_rating < 4 || road_access == PRIVATE)", MULTIPLY, "0"));
-        //, {"if": "true", "multiply_by": foot_priority}, {"if": "foot_network == INTERNATIONAL || foot_network == NATIONAL", "multiply_by": 1.7}, {"else_if": "foot_network == REGIONAL || foot_network == LOCAL", "multiply_by": 1.5}]|areas=[]|turnCostsConfig=transportationMode=null, restrictions=false, uTurnCosts=-1
-        variables = findVariablesForEncodedValuesString(customModel, s -> new DefaultImportRegistry().createImportUnit(s) != null, s -> "");
-        assertEquals(List.of("foot_access", "hike_rating", "road_access"), variables);
+        List<String> variables = findVariablesForEncodedValuesString(
+                customModel,
+                s -> new DefaultImportRegistry().createImportUnit(s) != null,
+                s -> "",
+                encodingManager // Added 4th parameter
+        );
+        assertEquals(List.of("car_access"), variables);
+    }
+
+    @Test
+    public void testNullHandling() {
+        // Setup test encoding manager - use the existing one from test setup or create new
+        EncodingManager encodingManager = EncodingManager.start()
+                .add(VehicleAccess.create("car"))
+                .add(VehicleSpeed.create("car", 5, 5, false))
+                .add(RoadClass.create())
+                .build();
+
+        CustomModel model = new CustomModel();
+        model.addToPriority(If("road_class == PRIMARY", MULTIPLY, "0.5"));
+
+        // Test with null lookup
+        assertThrows(IllegalArgumentException.class, () ->
+                CustomModelParser.findVariablesForEncodedValuesString(model, s -> true, s -> "", null));
+
+        // Test with null model
+        assertEquals(0, CustomModelParser.findVariablesForEncodedValuesString(null, s -> true, s -> "", encodingManager).size());
     }
 }

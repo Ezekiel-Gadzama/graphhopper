@@ -289,4 +289,12 @@ public class ValueExpressionVisitor implements Visitor.AtomVisitor<Boolean, Exce
     protected interface SingleArgEvaluator {
         double evaluate(double arg);
     }
+
+    public static String toJavaExpression(String expression, EncodedValueLookup lookup) {
+        ParseResult result = parse(expression, lookup::hasEncodedValue);
+        if (!result.ok) {
+            throw new IllegalArgumentException(result.invalidMessage);
+        }
+        return expression; // No conversion needed for value expressions
+    }
 }

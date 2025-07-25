@@ -30,7 +30,7 @@ graphhopper:
   profiles_lm: []
 
   # Encoded values - these add extra info for routing and details
-  graph.encoded_values: car_access,car_average_speed,road_access,surface,toll,lanes
+  graph.encoded_values: road_class,max_speed,road_environment,car_access,car_average_speed
 
   # Ignore pedestrian and bike ways for motorized vehicle routing
   import.osm.ignored_highways: footway,construction,cycleway,path,pedestrian,steps
@@ -63,6 +63,7 @@ server:
       bind_host: localhost
 
 logging:
+  level: INFO
   appenders:
     - type: file
       time_zone: UTC
@@ -76,6 +77,10 @@ logging:
       time_zone: UTC
       log_format: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
   loggers:
+    "com.graphhopper":
+      level: DEBUG
+    "com.graphhopper.routing.weighting.custom":
+      level: DEBUG
     "com.graphhopper.osm_warnings":
       level: DEBUG
       additive: false

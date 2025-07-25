@@ -17,10 +17,12 @@
  */
 package com.graphhopper.routing.weighting.custom;
 
+import com.graphhopper.routing.ev.EncodedValueLookup;
+import com.graphhopper.routing.ev.RoadClass;
 import com.graphhopper.util.Helper;
 import org.codehaus.janino.Scanner;
 import org.codehaus.janino.*;
-
+import com.graphhopper.json.*;
 import java.io.StringReader;
 import java.util.*;
 
@@ -48,32 +50,43 @@ class ConditionalExpressionVisitor implements Visitor.AtomVisitor<Boolean, Excep
 
     // allow only methods and other identifiers (constants and encoded values)
     boolean isValidIdentifier(String identifier) {
+        // First check if it's a valid variable name
         if (variableValidator.isValid(identifier)) {
             if (!Character.isUpperCase(identifier.charAt(0)))
                 result.guessedVariables.add(identifier);
             return true;
         }
-        return false;
+        // If not a variable, it might be an enum constant - defer validation to binary operation handling
+        return true;
     }
-
     @Override
     public Boolean visitRvalue(Java.Rvalue rv) throws Exception {
         if (rv instanceof Java.AmbiguousName) {
             Java.AmbiguousName n = (Java.AmbiguousName) rv;
             if (n.identifiers.length == 1) {
                 String arg = n.identifiers[0];
+
+                // Handle area checks first
                 if (arg.startsWith(IN_AREA_PREFIX)) {
                     int start = rv.getLocation().getColumnNumber() - 1;
                     replacements.put(start, new Replacement(start, arg.length(),
                             CustomWeightingHelper.class.getSimpleName() + ".in(this." + arg + ", edge)"));
                     result.guessedVariables.add(arg);
                     return true;
-                } else {
-                    // e.g. like road_class
-                    if (isValidIdentifier(arg)) return true;
-                    invalidMessage = "'" + arg + "' not available";
-                    return false;
                 }
+
+                // Check if this is a variable reference
+                if (variableValidator.isValid(arg)) {
+                    if (!Character.isUpperCase(arg.charAt(0))) {
+                        result.guessedVariables.add(arg);
+                    }
+                    return true;
+                }
+
+                // If not a valid variable, it might be an enum constant in a comparison
+                // We'll handle this in the binary operation case
+                invalidMessage = "'" + arg + "' not available";
+                return false;
             }
             invalidMessage = "identifier " + n + " invalid";
             return false;
@@ -114,18 +127,25 @@ class ConditionalExpressionVisitor implements Visitor.AtomVisitor<Boolean, Excep
             return ((Java.ParenthesizedExpression) rv).value.accept(this);
         } else if (rv instanceof Java.BinaryOperation) {
             Java.BinaryOperation binOp = (Java.BinaryOperation) rv;
-            int startRH = binOp.rhs.getLocation().getColumnNumber() - 1;
             if (binOp.lhs instanceof Java.AmbiguousName && ((Java.AmbiguousName) binOp.lhs).identifiers.length == 1) {
                 String lhVarAsString = ((Java.AmbiguousName) binOp.lhs).identifiers[0];
-                boolean eqOps = binOp.operator.equals("==") || binOp.operator.equals("!=");
+
                 if (binOp.rhs instanceof Java.AmbiguousName && ((Java.AmbiguousName) binOp.rhs).identifiers.length == 1) {
-                    // Make enum explicit as NO or OTHER can occur in other enums so convert "toll == NO" to "toll == Toll.NO"
                     String rhValueAsString = ((Java.AmbiguousName) binOp.rhs).identifiers[0];
-                    if (variableValidator.isValid(lhVarAsString) && Helper.toUpperCase(rhValueAsString).equals(rhValueAsString)) {
-                        if (!eqOps)
-                            throw new IllegalArgumentException("Operator " + binOp.operator + " not allowed for enum");
-                        String value = classHelper.getClassName(binOp.lhs.toString());
-                        replacements.put(startRH, new Replacement(startRH, rhValueAsString.length(), value + "." + rhValueAsString));
+
+                    if (variableValidator.isValid(lhVarAsString)) {
+                        String enumType = classHelper.getClassName(lhVarAsString);
+                        if (enumType != null) {
+                            // Create replacement with correct enum constant
+                            int startRH = binOp.rhs.getLocation().getColumnNumber() - 1;
+                            replacements.put(startRH, new Replacement(
+                                    startRH,
+                                    rhValueAsString.length(),
+                                    enumType + "." + rhValueAsString.toUpperCase()
+                            ));
+                            result.guessedVariables.add(lhVarAsString);
+                            return true;
+                        }
                     }
                 }
             }
@@ -157,29 +177,69 @@ class ConditionalExpressionVisitor implements Visitor.AtomVisitor<Boolean, Excep
      * instead of "toll == NO".
      */
     static ParseResult parse(String expression, NameValidator validator, ClassHelper helper) {
+        System.out.println("\nStarting parse for expression: " + expression);
         ParseResult result = new ParseResult();
+
         try {
+            System.out.println("Creating parser and scanner...");
             Parser parser = new Parser(new Scanner("ignore", new StringReader(expression)));
+
+            System.out.println("Parsing conditional expression...");
             Java.Atom atom = parser.parseConditionalExpression();
-            // after parsing the expression the input should end (otherwise it is not "simple")
+            System.out.println("Parsed atom: " + atom);
+
+            System.out.println("Checking for end of input...");
             if (parser.peek().type == TokenType.END_OF_INPUT) {
+                System.out.println("End of input reached successfully");
                 result.guessedVariables = new LinkedHashSet<>();
+
+                System.out.println("Creating visitor with validator: " + validator);
                 ConditionalExpressionVisitor visitor = new ConditionalExpressionVisitor(result, validator, helper);
+                System.out.println("Print visitor: " + visitor);
+                System.out.println("Visiting atom...");
                 result.ok = atom.accept(visitor);
                 result.invalidMessage = visitor.invalidMessage;
+
+                System.out.println("Visitor result - ok: " + result.ok +
+                        ", invalidMessage: " + result.invalidMessage);
+
                 if (result.ok) {
+                    System.out.println("Building converted expression...");
                     result.converted = new StringBuilder(expression.length());
                     int start = 0;
                     for (Replacement replace : visitor.replacements.values()) {
-                        result.converted.append(expression, start, replace.start).append(replace.newString);
+                        result.converted.append(expression, start, replace.start)
+                                .append(replace.newString);
                         start = replace.start + replace.oldLength;
                     }
                     result.converted.append(expression.substring(start));
+                    System.out.println("Converted expression: " + result.converted);
                 }
+            } else {
+                System.out.println("Unexpected token after expression: " + parser.peek());
+                result.invalidMessage = "Unexpected token after expression";
             }
         } catch (Exception ex) {
+            System.out.println("Exception during parsing: " + ex);
+            ex.printStackTrace();
+            result.invalidMessage = ex.getMessage();
         }
+
+        System.out.println("Final parse result: " + result);
         return result;
+    }
+
+    public static Set<String> findVariables(String expression, EncodedValueLookup lookup, ClassHelper classHelper) {
+        NameValidator nameValidator = lookup::hasEncodedValue;
+        ParseResult result = parse(expression, nameValidator, classHelper);
+        return result.guessedVariables;
+    }
+    public static String toJavaExpression(String expression, EncodedValueLookup lookup, ClassHelper classHelper) {
+        ParseResult result = parse(expression, lookup::hasEncodedValue, classHelper);
+        if (!result.ok) {
+            throw new IllegalArgumentException(result.invalidMessage != null ? result.invalidMessage : "Invalid expression");
+        }
+        return result.converted != null ? result.converted.toString() : expression;
     }
 
     static class Replacement {
@@ -191,6 +251,23 @@ class ConditionalExpressionVisitor implements Visitor.AtomVisitor<Boolean, Excep
             this.start = start;
             this.oldLength = oldLength;
             this.newString = newString;
+        }
+    }
+
+    static class ParseResult {
+        boolean ok;
+        String invalidMessage;
+        Set<String> guessedVariables;
+        StringBuilder converted;
+
+        @Override
+        public String toString() {
+            return "ParseResult{" +
+                    "ok=" + ok +
+                    ", invalidMessage='" + invalidMessage + '\'' +
+                    ", guessedVariables=" + guessedVariables +
+                    ", converted=" + (converted != null ? converted.toString() : "null") +
+                    '}';
         }
     }
 }

@@ -57,6 +57,8 @@ public class DefaultWeightingFactory implements WeightingFactory {
         hints.putAll(profile.getHints());
         hints.putAll(requestHints);
 
+
+
         TurnCostProvider turnCostProvider;
         if (profile.hasTurnCosts() && !disableTurnCosts) {
             BooleanEncodedValue turnRestrictionEnc = encodingManager.getTurnBooleanEncodedValue(TurnRestriction.key(profile.getName()));
@@ -71,6 +73,7 @@ public class DefaultWeightingFactory implements WeightingFactory {
         } else {
             turnCostProvider = NO_TURN_COST_PROVIDER;
         }
+
 
         String weightingStr = toLowerCase(profile.getWeighting());
         if (weightingStr.isEmpty())
@@ -87,6 +90,7 @@ public class DefaultWeightingFactory implements WeightingFactory {
                     throw new IllegalArgumentException("cm_version: \"2\" is required");
                 weighting = CustomModelParser.createWeighting2(encodingManager, turnCostProvider, mergedCustomModel);
             } else
+                System.out.println("Print president: encodingManager: " + encodingManager + "    turnCostProvider: " +turnCostProvider + "    mergedCustomModel: " + mergedCustomModel);
                 weighting = CustomModelParser.createWeighting(encodingManager, turnCostProvider, mergedCustomModel);
 
         } else if ("shortest".equalsIgnoreCase(weightingStr)) {

@@ -20,10 +20,15 @@ package com.graphhopper.http;
 
 import com.graphhopper.GraphHopper;
 import com.graphhopper.GraphHopperConfig;
+import com.graphhopper.config.Profile;
 import com.graphhopper.gtfs.GraphHopperGtfs;
+import com.graphhopper.util.CustomModel;
 import io.dropwizard.lifecycle.Managed;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static com.graphhopper.json.Statement.If;
+import static com.graphhopper.json.Statement.Op.MULTIPLY;
 
 public class GraphHopperManaged implements Managed {
 
@@ -36,6 +41,7 @@ public class GraphHopperManaged implements Managed {
         } else {
             graphHopper = new CustomGraphHopper();
         }
+
         graphHopper.init(configuration);
     }
 
@@ -48,10 +54,13 @@ public class GraphHopperManaged implements Managed {
                 graphHopper.getEncodingManager().getBytesForFlags(),
                 graphHopper.getBaseGraph().toDetailsString());
 
+
 //        // Debug here:
 //        EncodingManager em = graphHopper.getEncodingManager();
 //        System.out.println("[DEBUG] Encoded values after load: " + em.getEncodedValues());
 //        System.out.println("[DEBUG] OSM ID check: " + em.hasEncodedValue(OSM_ID_KEY));
+        System.out.println("Encoded values: " + graphHopper.getEncodingManager().toEncodedValuesAsString());
+        System.out.println("Profiles: " + graphHopper.getProfiles());
     }
 
     public GraphHopper getGraphHopper() {
