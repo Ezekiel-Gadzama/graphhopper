@@ -40,7 +40,8 @@ class ElevationAPI:
             for lat, lon in road.coordinates
             if self.format_key(lat, lon) not in self.elevation_map
         })
-
+        
+        self._log(len(coords))
         if not coords:
             return
 
