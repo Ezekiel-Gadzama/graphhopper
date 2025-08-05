@@ -150,8 +150,8 @@ def compare_segments(segments1: List[List[int]], segments2: List[List[int]]) -> 
 
 def main():
     graphhopper = GraphHopper()
-    optimizer = FuelOptimizer()
-    optimizer.update_custom_model()
+    # optimizer = FuelOptimizer()
+    # optimizer.update_custom_model()
     print("Custom model updated successfully.")
     
     # Load custom model

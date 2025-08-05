@@ -47,18 +47,16 @@
     {
       "if": "road_class == FOOTWAY",
       "multiply_by": 1.055359899256245
+    }
+  ],
+  "speed": [
+    {
+      "if": "true",
+      "limit_to": "100"
     },
     {
-      "if": "surface == GROUND",
-      "multiply_by": 0.9919018536048243
-    },
-    {
-      "if": "surface == PAVED",
-      "multiply_by": 0.7490460660341844
-    },
-    {
-      "if": "surface == ASPHALT || surface == CONCRETE",
-      "multiply_by": 1.0
+      "if": "road_class == MOTORWAY",
+      "multiply_by": 0.5
     }
   ]
 }

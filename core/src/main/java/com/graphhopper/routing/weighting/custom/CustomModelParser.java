@@ -346,9 +346,6 @@ public class CustomModelParser {
 
         @Override
         public String getClassName(String encodedValueName) {
-            if ("road_class".equals(encodedValueName)) {
-                return "RoadClass";
-            }
             EncodedValue enc = lookup.getEncodedValue(encodedValueName, EncodedValue.class);
             if (enc instanceof EnumEncodedValue) {
                 return ((EnumEncodedValue<?>) enc).getEnumType().getSimpleName();

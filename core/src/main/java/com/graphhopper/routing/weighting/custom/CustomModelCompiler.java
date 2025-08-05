@@ -106,60 +106,68 @@ public class CustomModelCompiler {
         });
     }
 
-    private static Map<String, String> createVariableMap(String var, EncodedValueLookup lookup) {
-        Map<String, String> map = new HashMap<>();
-        if (var.startsWith("in_")) {
-            map.put("name", var);
-            map.put("type", "Polygon");
-            return map;
-        } else if (var.equals("osm_id")) {
-            return null;
-        } else if (lookup.hasEncodedValue(var)) {
-            System.out.println("[DEBUG] Checking encoded value for variable: " + var);
-            System.out.println("[DEBUG] Encoded value exists in lookup: " + lookup.hasEncodedValue(var));
+        private static Map<String, Object> createVariableMap(String var, EncodedValueLookup lookup) {
+            Map<String, Object> map = new HashMap<>();
+            if (var.startsWith("in_")) {
+                map.put("name", var);
+                map.put("type", "Polygon");
+                map.put("isArea", true);
+                map.put("isEnum", false);
+                return map;
+            } else if (var.equals("osm_id")) {
+                return null;
+            } else if (lookup.hasEncodedValue(var)) {
+                System.out.println("[DEBUG] Checking encoded value for variable: " + var);
+                System.out.println("[DEBUG] Encoded value exists in lookup: " + lookup.hasEncodedValue(var));
 
-            try {
-                System.out.println("[DEBUG] Attempting to get EncodedValue instance for: " + var);
-                EncodedValue ev = lookup.getEncodedValue(var, EncodedValue.class);
+                try {
+                    System.out.println("[DEBUG] Attempting to get EncodedValue instance for: " + var);
+                    EncodedValue ev = lookup.getEncodedValue(var, EncodedValue.class);
 
-                System.out.println("[DEBUG] Successfully retrieved EncodedValue: " + ev);
-                System.out.println("[DEBUG] EncodedValue class: " + ev.getClass().getName());
+                    System.out.println("[DEBUG] Successfully retrieved EncodedValue: " + ev);
+                    System.out.println("[DEBUG] EncodedValue class: " + ev.getClass().getName());
 
-                // Handle EnumEncodedValue specially
-                if (ev instanceof EnumEncodedValue) {
-                    System.out.println("[DEBUG] Handling EnumEncodedValue");
-                    map.put("name", var);
-                    map.put("type", "EnumEncodedValue");
-                    System.out.println("[DEBUG] Created variable map: " + map);
-                    return map;
+                    // Handle EnumEncodedValue specially
+                    if (ev instanceof EnumEncodedValue) {
+                        System.out.println("[DEBUG] Handling EnumEncodedValue");
+                        map.put("name", var);
+                        map.put("type", ((EnumEncodedValue<?>) ev).getEnumType().getSimpleName());
+                        map.put("isEnum", true);
+                        map.put("isArea", false);
+                        System.out.println("[DEBUG] Created variable map: " + map);
+                        return map;
+                    }
+
+                    // For other encoded values, try to get interface
+                    Class<?>[] interfaces = ev.getClass().getInterfaces();
+                    System.out.println("[DEBUG] Implemented interfaces: " + Arrays.toString(interfaces));
+
+                    if (interfaces.length > 0) {
+                        String interfaceName = interfaces[0].getSimpleName();
+                        System.out.println("[DEBUG] Using interface: " + interfaceName);
+
+                        map.put("name", var);
+                        map.put("type", interfaceName);
+                        map.put("isEnum", false);
+                        map.put("isArea", false);
+                        System.out.println("[DEBUG] Created variable map: " + map);
+                        return map;
+                    } else {
+                        System.out.println("[DEBUG] No interfaces found, using class name directly");
+                        map.put("name", var);
+                        map.put("type", ev.getClass().getSimpleName());
+                        map.put("isEnum", false);
+                        map.put("isArea", false);
+                        return map;
+                    }
+                } catch (Exception e) {
+                    System.out.println("[DEBUG] Error getting EncodedValue for " + var + ": " + e.getMessage());
+                    throw e;
                 }
-
-                // For other encoded values, try to get interface
-                Class<?>[] interfaces = ev.getClass().getInterfaces();
-                System.out.println("[DEBUG] Implemented interfaces: " + Arrays.toString(interfaces));
-
-                if (interfaces.length > 0) {
-                    String interfaceName = interfaces[0].getSimpleName();
-                    System.out.println("[DEBUG] Using interface: " + interfaceName);
-
-                    map.put("name", var);
-                    map.put("type", interfaceName);
-                    System.out.println("[DEBUG] Created variable map: " + map);
-                    return map;
-                } else {
-                    System.out.println("[DEBUG] No interfaces found, using class name directly");
-                    map.put("name", var);
-                    map.put("type", ev.getClass().getSimpleName());
-                    return map;
-                }
-            } catch (Exception e) {
-                System.out.println("[DEBUG] Error getting EncodedValue for " + var + ": " + e.getMessage());
-                throw e;
             }
+            System.err.println(">>> Unknown variable in custom model: " + var);
+            throw new IllegalArgumentException("Unknown variable type: " + var);
         }
-        System.err.println(">>> Unknown variable in custom model: " + var);
-        throw new IllegalArgumentException("Unknown variable type: " + var);
-    }
 
     private static List<Map<String, String>> processStatements(List<Statement> statements, EncodedValueLookup lookup, ClassHelper classHelper) {
         if (statements == null) return Collections.emptyList();
