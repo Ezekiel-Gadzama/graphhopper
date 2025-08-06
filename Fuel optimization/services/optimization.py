@@ -98,6 +98,6 @@ class FuelOptimizer:
         #    - Fails on complex conditions like "osm_id == 12345"
         #
         # Current solution:
-        # Using 'Bee' branch which works with road_class level coefficients and other default grahhopper osm tags
+        # Using 'final-branch' branch which works with road_class level coefficients and other default grahhopper osm tags
         # Future work needed to complete FreeMarker integration for per-road optimization
         # self.custom_model.save_to_file()
