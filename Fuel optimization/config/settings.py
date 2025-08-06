@@ -21,7 +21,7 @@ class DatabaseConfig:
     db_password: str = os.getenv("DB_PASSWORD")
 
 class Settings:
-    verbose = 1
+    verbose = 0
     TOMTOM_API_KEY = os.getenv("TOMTOM_API_KEY")
     TOMORROW_API_KEY = os.getenv("TOMORROW_API_KEY")
     OSM_FILE_PATHS = [

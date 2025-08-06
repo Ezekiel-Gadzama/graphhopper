@@ -6,3 +6,7 @@ sshtunnel
 osmium
 requests
 shapely
+requests_futures
+fastapi
+uvicorn
+pydantic
