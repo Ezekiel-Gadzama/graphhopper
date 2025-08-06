@@ -49,6 +49,14 @@
       "multiply_by": 1.055359899256245
     },
     {
+      "if": "road_class == CYCLEWAY",
+      "multiply_by": 0.55
+    },
+    {
+      "if": "road_class == STEPS || road_class == BRIDLEWAY",
+      "multiply_by": 0.4
+    },
+    {
       "if": "surface == GROUND",
       "multiply_by": 0.9919018536048243
     },
@@ -59,6 +67,34 @@
     {
       "if": "surface == ASPHALT || surface == CONCRETE",
       "multiply_by": 1.0
+    }, 
+    {
+      "if": "surface == GRAVEL || surface == DIRT || surface == SAND",
+      "multiply_by": 0.6
+    },
+    {
+      "if": "surface == COBBLESTONE || surface == PAVING_STONES",
+      "multiply_by": 0.75
+    },
+    {
+      "if": "toll != MISSING",
+      "multiply_by": 1.1
+    },
+    {
+      "if": "road_environment == TUNNEL",
+      "multiply_by": 0.9
+    },
+    {
+      "if": "road_environment == BRIDGE",
+      "multiply_by": 0.95
+    },
+    {
+      "if": "lanes >= 4",
+      "multiply_by": 1.1
+    },
+    {
+      "if": "lanes <= 1",
+      "multiply_by": 0.9
     }
   ]
 }

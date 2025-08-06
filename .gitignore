@@ -51,3 +51,4 @@ package-lock.json
 /Fuel optimization/stored_data/osm_elevation.json
 test.py
 test2.py
+custom_model_route/
