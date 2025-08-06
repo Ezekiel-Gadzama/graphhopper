@@ -72,50 +72,32 @@ class FuelOptimizer:
         return grouped
 
     def update_custom_model(self) -> None:
-        self._log(f"length of road: {len(self.extractor.roads.values())}")
-        # Load all roads
+        """Updates the routing model with fuel efficiency coefficients for each road type."""
+        self._log(f"Total roads loaded: {len(self.extractor.roads.values())}")
+        
+        # Generate fleet-wide fuel consumption profiles (700 days of historical data)
         fleet_profile = self.fuel_analyzer.analyze_fleet(700)
         fuel_type_coefficients = fleet_profile.average_attr_coefficients.get("road_type", {})
-        self._log(f"Average Coefficients: {fleet_profile.average_attr_coefficients}")
-        self._log(f"Median Coefficients: {fleet_profile.median_attr_coefficients}")
-        points = fleet_profile.vehicles[0].fuel_points # try for just the first vehicle
+        
+        self._log(f"Average road coefficients: {fleet_profile.average_attr_coefficients}")
+        self._log(f"Median road coefficients: {fleet_profile.median_attr_coefficients}")
+        
+        # Use first vehicle's data as sample implementation
+        points = fleet_profile.vehicles[0].fuel_points
         grouped_points = self.group_points_by_road_id(points)
 
-############################Just to process few road that are close by#############################
-
-#         # Define target point
-#         target = (6.68787,80.388847)
-#         # Compute distances from each road to the target point
-#         road_distances = []
-#         for osm_id, road in self.extractor.roads.items():
-#             if road.coordinates:
-#                 for lat, lon in road.coordinates:
-#                     dist = calculate_distance(target[0], target[1], lat, lon)
-#                     if dist < 100000:  # Only consider roads within 100 km
-#                         road_distances.append((osm_id, road, dist))
-#                         break  # Avoid adding the same road multiple times
-
-#         self._log(f"Found {len(road_distances)} roads within 100000m of target point ({target[0]}, {target[1]})")
-#         # Sort by distance and keep top 5
-#         closest_roads = sorted(road_distances, key=lambda x: x[2])
-
-# # ##############################################################################
-
-        # # Process only the closest 5 roads
-        for index, (osm_id, road) in enumerate(self.extractor.roads.items(), start=1): # (osm_id, road) in enumerate(self.extractor.roads.items(), start=1)
-            self._log(f"Processing road {index}/{len(self.extractor.roads.items())}: OSM ID {osm_id}")
-            type_coefficient = 1 # fuel_type_coefficients.get(road.road_type, 1.0)
-            self._log(f"Road type coefficient: {type_coefficient}")
-            road_profile = self.create_road_profile(road)
-            
-            # Calculate priority multiplier
-            multiplier = self.coefficient_processor.process_road_coefficient(road_profile)
-            multiplier *= type_coefficient
-
-            self.custom_model.add_priority_rule(osm_id, multiplier)
-            self._log(f"[{index}] Added rule: OSM ID {osm_id}, multiplier={multiplier}")
-
-        self._log(f"Average Coefficients: {fleet_profile.average_attr_coefficients}\n\n\n\n\n\n\n\n\n")
-        self._log(f"Median Coefficients: {fleet_profile.median_attr_coefficients}")
-
-        self.custom_model.save_to_file()
+        # Implementation note:
+        # Original plan was to assign coefficients per OSM_ID for dynamic adjustments (traffic/weather).
+        # We modified GraphHopper to support osm_id in conditions:
+        #   {"if": "osm_id == 12345", "multiply_by": 1.3}
+        #
+        # Challenges:
+        # 1. Large custom model files (~40MB) exceed Janino's 64KB expression limit
+        # 2. FreeMarker branch partially solves this by converting to Java classes, but:
+        #    - Incomplete integration with our osm_id modifications
+        #    - Fails on complex conditions like "osm_id == 12345"
+        #
+        # Current solution:
+        # Using 'Bee' branch which works with road_class level coefficients and other default grahhopper osm tags
+        # Future work needed to complete FreeMarker integration for per-road optimization
+        # self.custom_model.save_to_file()

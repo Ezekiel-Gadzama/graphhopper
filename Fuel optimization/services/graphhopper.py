@@ -3,8 +3,13 @@ from typing import List, Dict, Any
 from config.settings import settings
 
 class GraphHopper:
-    def __init__(self, base_url: str = settings.GRAPHHOPPER_URL):
+    def __init__(self, base_url: str = settings.GRAPHHOPPER_URL, verbose: int = settings.verbose):
         self.base_url = base_url
+        self.verbose = verbose
+
+    def _log(self, *args):
+        if self.verbose > 0:
+            print(*args)
 
     def request_route(self, start_coord: List[float], end_coord: List[float], custom_model: Dict[str, Any] = None) -> Dict[str, Any]:
         params = {
@@ -28,28 +33,27 @@ class GraphHopper:
             response = requests.post(self.base_url, json=params)
             
             # Print full response details
-            print("\n=== Full Response ===")
-            print(f"Status Code: {response.status_code}")
-            print("Headers:")
+            self._log("\n=== Full Response ===")
+            self._log(f"Status Code: {response.status_code}")
+            self._log("Headers:")
             for header, value in response.headers.items():
-                print(f"  {header}: {value}")
-            
-            print("\nBody:")
+                self._log(f"  {header}: {value}")
+            self._log("\nBody:")
             try:
                 # Pretty-print JSON if possible
-                print(json.dumps(response.json(), indent=2))
+                self._log(json.dumps(response.json(), indent=2))
             except ValueError:
                 # Fallback to raw text if not JSON
-                print(response.text)
-            
+                self._log(response.text)
             response.raise_for_status()  # Raise HTTP errors
             return response.json()
             
         except requests.exceptions.RequestException as e:
-            print(f"\n=== Request Failed ===")
+            self._log(f"\n=== Request Failed ===")
+            print()
             if hasattr(e, 'response') and e.response:
-                print(f"Status Code: {e.response.status_code}")
-                print("Error Body:")
-                print(e.response.text)
-            print(f"Error: {str(e)}")
+                self._log(f"Status Code: {e.response.status_code}")
+                self._log("Error Body:")
+                self._log(e.response.text)
+            self._log(f"Error: {str(e)}")
             return None
